@@ -88,8 +88,8 @@ protected:
    const ORBVocabulary* mpVoc;
 
    // Inverted file
-   std::vector<list<KeyFrame*> > mvInvertedFile;
-
+   std::vector<list<KeyFrame*> > mvInvertedFile;    // 使用倒序索引(以节点为单位，记录该节点存在于那些图像之中，以及图像对应的信息)，提取所有包含该单词id的所有KeyFrame。
+                                                    // 如: mvInvertedFile[i]表示包含了第i个单词ID的所有关键帧
    // For save relation without pointer, this is necessary for save/load function
    std::vector<list<long unsigned int> > mvBackupInvertedFileId;
 

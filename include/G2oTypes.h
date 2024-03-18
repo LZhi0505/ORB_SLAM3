@@ -492,6 +492,9 @@ public:
     const int cam_idx;
 };
 
+/**
+ *  @brief 惯性边的类 (误差为残差)
+ */
 class EdgeInertial : public g2o::BaseMultiEdge<9,Vector9d>
 {
 public:
@@ -502,21 +505,26 @@ public:
     virtual bool read(std::istream& is){return false;}
     virtual bool write(std::ostream& os) const{return false;}
 
+    // 计算 残差
     void computeError();
+    // 计算 残差对状态增量的雅可比矩阵
     virtual void linearizeOplus();
 
-    Eigen::Matrix<double,24,24> GetHessian(){
+    // 残差对状态增量的雅可比矩阵 和 信息矩阵 构建得到 Hessian 矩阵
+    // 关于pose1与2 的旋转、位置、速度，以及之间的零偏的 信息矩阵
+    Eigen::Matrix<double, 24, 24> GetHessian() {
         linearizeOplus();
-        Eigen::Matrix<double,9,24> J;
-        J.block<9,6>(0,0) = _jacobianOplus[0];
-        J.block<9,3>(0,6) = _jacobianOplus[1];
-        J.block<9,3>(0,9) = _jacobianOplus[2];
-        J.block<9,3>(0,12) = _jacobianOplus[3];
-        J.block<9,6>(0,15) = _jacobianOplus[4];
-        J.block<9,3>(0,21) = _jacobianOplus[5];
-        return J.transpose()*information()*J;
+        Eigen::Matrix<double, 9, 24> J;
+        J.block<9,6>(0,0) = _jacobianOplus[0];  // 旋转、速度、位置残差分别对 pose1 的旋转(Ri) 与 平移(pi) 求导
+        J.block<9,3>(0,6) = _jacobianOplus[1];  // 旋转、速度、位置残差分别对 pose1的 速度(vi) 求导
+        J.block<9,3>(0,9) = _jacobianOplus[2];  // 旋转、速度、位置残差分别对 陀螺仪零偏(bgi) 求导
+        J.block<9,3>(0,12) = _jacobianOplus[3]; // 旋转、速度、位置残差分别对 加速度计零偏(bai) 求导
+        J.block<9,6>(0,15) = _jacobianOplus[4]; // 旋转、速度、位置残差分别对 pose2的 旋转(Rj) 与 平移(pj) 求导
+        J.block<9,3>(0,21) = _jacobianOplus[5]; // 旋转、速度、位置残差分别对 pose2的 速度(vj) 求导
+        return J.transpose() * information() * J;
     }
 
+    // 没用
     Eigen::Matrix<double,18,18> GetHessianNoPose1(){
         linearizeOplus();
         Eigen::Matrix<double,9,18> J;
@@ -528,23 +536,29 @@ public:
         return J.transpose()*information()*J;
     }
 
-    Eigen::Matrix<double,9,9> GetHessian2(){
+    // 关于pose2 的旋转、位置的 信息矩阵
+    Eigen::Matrix<double, 9, 9> GetHessian2(){
         linearizeOplus();
         Eigen::Matrix<double,9,9> J;
         J.block<9,6>(0,0) = _jacobianOplus[4];
         J.block<9,3>(0,6) = _jacobianOplus[5];
-        return J.transpose()*information()*J;
+        return J.transpose() * information() * J;
     }
 
+    // 预积分中对应的状态对零偏的 雅可比矩阵
     const Eigen::Matrix3d JRg, JVg, JPg;
     const Eigen::Matrix3d JVa, JPa;
-    IMU::Preintegrated* mpInt;
-    const double dt;
-    Eigen::Vector3d g;
+
+    IMU::Preintegrated* mpInt;  // 预积分指针
+    const double dt;            // 预积分时间
+    Eigen::Vector3d g;          // 重力
 };
 
 
 // Edge inertial whre gravity is included as optimizable variable and it is not supposed to be pointing in -z axis, as well as scale
+/**
+ * @brief 初始化惯性边（误差为残差）
+ */
 class EdgeInertialGS : public g2o::BaseMultiEdge<9,Vector9d>
 {
 public:

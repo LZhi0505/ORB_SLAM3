@@ -73,7 +73,7 @@ private:
     System* mpSystem;
     FrameDrawer* mpFrameDrawer;
     MapDrawer* mpMapDrawer;
-    Tracking* mpTracker;
+    Tracking* mpTracker;    // 指向Tracking类型的指针，它存储的是一个Tracking类型的对象的地址
 
     // 1/fps in ms
     double mT;

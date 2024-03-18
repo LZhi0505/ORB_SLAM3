@@ -309,8 +309,8 @@ public:
 public:
 
     static long unsigned int nNextId;
-    long unsigned int mnId;
-    const long unsigned int mnFrameId;
+    long unsigned int mnId;         // 该关键帧在关键帧集合里面的ID
+    const long unsigned int mnFrameId;  // 关键帧的绝对帧ID
 
     const double mTimeStamp;
 
@@ -385,11 +385,13 @@ public:
     const cv::Mat mDescriptors;
 
     //BoW
-    DBoW2::BowVector mBowVec;
-    DBoW2::FeatureVector mFeatVec;
+    DBoW2::BowVector mBowVec;   // 词袋向量，记录 单词的ID（词汇树中距离最近的叶子节点的id） 及其 对应权重
+                                // 记录了由描述子转换得到的词袋向量信息以及每个单词的权重，这个主要用于计算两帧之间的图像相似性
+    DBoW2::FeatureVector mFeatVec;  // 特征向量 mFeatVec，记录 node id（距离叶子节点深度为level up对应的node的Id）及其 对应的图像feature的IDs（该节点下所有叶子节点对应的feature的id）
+                                    // 记录了每个特征点的索引 以及 该特征点对应单词在词袋树上的节点id，根据这一信息可以在寻找特征匹配时只对统一节点上的特征点寻找匹配关系，以实现加速匹配
 
     // Pose relative to parent (this is computed when bad flag is activated)
-    Sophus::SE3f mTcp;
+    Sophus::SE3f mTcp;  // 当前关键帧 相对 其父关键帧的 位姿 Tcp
 
     // Scale
     const int mnScaleLevels;
@@ -446,7 +448,7 @@ protected:
     IMU::Bias mImuBias;
 
     // MapPoints associated to keypoints
-    std::vector<MapPoint*> mvpMapPoints;
+    std::vector<MapPoint*> mvpMapPoints;        // 地图点。key：2D特征点索引，value：3D地图点
     // For save relation without pointer, this is necessary for save/load function
     std::vector<long long int> mvBackupMapPointsId;
 
@@ -457,9 +459,9 @@ protected:
     // Grid over the image to speed up feature matching
     std::vector< std::vector <std::vector<size_t> > > mGrid;
 
-    std::map<KeyFrame*,int> mConnectedKeyFrameWeights;
-    std::vector<KeyFrame*> mvpOrderedConnectedKeyFrames;
-    std::vector<int> mvOrderedWeights;
+    std::map<KeyFrame*,int> mConnectedKeyFrameWeights;  // 存储 所有看到当前关键帧地图点的关键帧，及观测个数。key: 某个关键帧，value: 该关键帧看到了多少个当前帧的地图点
+    std::vector<KeyFrame*> mvpOrderedConnectedKeyFrames;    // 存储 当前关键帧的 依据共视程度从高到低的共视关键帧 (多个且观测点数>=15 或 一个最高的共视关键帧)
+    std::vector<int> mvOrderedWeights;                  // 存储 当前关键帧的共视关键帧的 共视程度 (多个且观测点数>=15 或 一个最高的)
     // For save relation without pointer, this is necessary for save/load function
     std::map<long unsigned int, int> mBackupConnectedKeyFrameIdWeights;
 
@@ -523,6 +525,8 @@ public:
     Eigen::Vector3f GetRightCameraCenter();
     Eigen::Matrix<float,3,3> GetRightRotation();
     Eigen::Vector3f GetRightTranslation();
+
+    cv::Mat imgLeft, imgRight;    // liuzhi 加
 
     void PrintPointDistribution(){
         int left = 0, right = 0;

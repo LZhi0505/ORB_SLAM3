@@ -141,22 +141,22 @@ public:
 
 protected:
 
-    std::set<Map*> mspMaps;
-    std::set<Map*> mspBadMaps;
+    std::set<Map*> mspMaps;     // 地图集：存放所有地图（包含当前活跃地图）
+    std::set<Map*> mspBadMaps;  // 坏地图集
     // Its necessary change the container from set to vector because libboost 1.58 and Ubuntu 16.04 have an error with this cointainer
     std::vector<Map*> mvpBackupMaps;
 
-    Map* mpCurrentMap;
+    Map* mpCurrentMap;  // 活跃地图
 
     std::vector<GeometricCamera*> mvpCameras;
 
-    unsigned long int mnLastInitKFidMap;
+    unsigned long int mnLastInitKFidMap;    // 下一地图初始帧id = 当前活跃地图最大 关键帧id + 1
 
     Viewer* mpViewer;
     bool mHasViewer;
 
     // Class references for the map reconstruction from the save file
-    KeyFrameDatabase* mpKeyFrameDB;
+    KeyFrameDatabase* mpKeyFrameDB;     // 整个地图集共用同一个DBoW数据库
     ORBVocabulary* mpORBVocabulary;
 
     // Mutex

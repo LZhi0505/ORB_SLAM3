@@ -508,91 +508,112 @@ EdgeInertial::EdgeInertial(IMU::Preintegrated *pInt):JRg(pInt->JRg.cast<double>(
     setInformation(Info);
 }
 
-
-
-
+/**
+ * @brief 计算预积分残差
+ * 它在惯性边的类的成员函数 computeError() 内实现，与推导结果一致
+ */
 void EdgeInertial::computeError()
 {
     // TODO Maybe Reintegrate inertial measurments when difference between linearization point and current estimate is too big
-    const VertexPose* VP1 = static_cast<const VertexPose*>(_vertices[0]);
-    const VertexVelocity* VV1= static_cast<const VertexVelocity*>(_vertices[1]);
-    const VertexGyroBias* VG1= static_cast<const VertexGyroBias*>(_vertices[2]);
-    const VertexAccBias* VA1= static_cast<const VertexAccBias*>(_vertices[3]);
-    const VertexPose* VP2 = static_cast<const VertexPose*>(_vertices[4]);
-    const VertexVelocity* VV2 = static_cast<const VertexVelocity*>(_vertices[5]);
-    const IMU::Bias b1(VA1->estimate()[0],VA1->estimate()[1],VA1->estimate()[2],VG1->estimate()[0],VG1->estimate()[1],VG1->estimate()[2]);
-    const Eigen::Matrix3d dR = mpInt->GetDeltaRotation(b1).cast<double>();
-    const Eigen::Vector3d dV = mpInt->GetDeltaVelocity(b1).cast<double>();
-    const Eigen::Vector3d dP = mpInt->GetDeltaPosition(b1).cast<double>();
+    // 计算残差
+    const VertexPose* VP1 = static_cast<const VertexPose*>(_vertices[0]);           // 位姿 Ti
+    const VertexVelocity* VV1= static_cast<const VertexVelocity*>(_vertices[1]);    // 速度 Vi
+    const VertexGyroBias* VG1= static_cast<const VertexGyroBias*>(_vertices[2]);    // 零偏 Bgi
+    const VertexAccBias* VA1= static_cast<const VertexAccBias*>(_vertices[3]);      // 零偏 Bai
 
-    const Eigen::Vector3d er = LogSO3(dR.transpose()*VP1->estimate().Rwb.transpose()*VP2->estimate().Rwb);
-    const Eigen::Vector3d ev = VP1->estimate().Rwb.transpose()*(VV2->estimate() - VV1->estimate() - g*dt) - dV;
-    const Eigen::Vector3d ep = VP1->estimate().Rwb.transpose()*(VP2->estimate().twb - VP1->estimate().twb
-                                                               - VV1->estimate()*dt - g*dt*dt/2) - dP;
+    const VertexPose* VP2 = static_cast<const VertexPose*>(_vertices[4]);           // 位姿 Tj
+    const VertexVelocity* VV2 = static_cast<const VertexVelocity*>(_vertices[5]);   // 速度 Vj
+    // 更新后的零偏
+    const IMU::Bias b1(VA1->estimate()[0],VA1->estimate()[1],VA1->estimate()[2],VG1->estimate()[0],VG1->estimate()[1],VG1->estimate()[2]);
+    // 更新零偏后的旋转、速度、位置的预积分量
+    const Eigen::Matrix3d dR = mpInt->GetDeltaRotation(b1).cast<double>();  // △R~-_i,j
+    const Eigen::Vector3d dV = mpInt->GetDeltaVelocity(b1).cast<double>();  // △V~-_i,j
+    const Eigen::Vector3d dP = mpInt->GetDeltaPosition(b1).cast<double>();  // △P~-_i,j
+
+    // 广义上讲都是真实值 = 残差 + IMU，旋转为IMU*残差=真实值
+    // dR.transpose() 为IMU预积分的值，VP1->estimate().Rwb.transpose() * VP2->estimate().Rwb 为相机的Rwc在乘上相机与IMU的标定外参矩阵
+    const Eigen::Vector3d er = LogSO3(dR.transpose() * VP1->estimate().Rwb.transpose() * VP2->estimate().Rwb);      // 旋转预积分残差 (15-72)
+    const Eigen::Vector3d ev = VP1->estimate().Rwb.transpose() * ( VV2->estimate() - VV1->estimate() - g*dt ) - dV;     // 速度预积分残差 (15-80)
+    const Eigen::Vector3d ep = VP1->estimate().Rwb.transpose() * ( VP2->estimate().twb - VP1->estimate().twb - VV1->estimate()*dt - g*dt*dt/2 ) - dP;   // 位置预积分残差 (15-90)
 
     _error << er, ev, ep;
 }
 
+/**
+ * @brief 计算 残差对状态增量的雅可比矩阵 J
+ * 它在惯性边的类的成员函数 linearizeOplus() 内实现，与推导结果一致
+ */
 void EdgeInertial::linearizeOplus()
 {
-    const VertexPose* VP1 = static_cast<const VertexPose*>(_vertices[0]);
-    const VertexVelocity* VV1= static_cast<const VertexVelocity*>(_vertices[1]);
-    const VertexGyroBias* VG1= static_cast<const VertexGyroBias*>(_vertices[2]);
-    const VertexAccBias* VA1= static_cast<const VertexAccBias*>(_vertices[3]);
-    const VertexPose* VP2 = static_cast<const VertexPose*>(_vertices[4]);
-    const VertexVelocity* VV2= static_cast<const VertexVelocity*>(_vertices[5]);
+    const VertexPose* VP1 = static_cast<const VertexPose*>(_vertices[0]);           // 位姿Ti
+    const VertexVelocity* VV1= static_cast<const VertexVelocity*>(_vertices[1]);    // 速度Vi
+    const VertexGyroBias* VG1= static_cast<const VertexGyroBias*>(_vertices[2]);    // 零偏 Bgi
+    const VertexAccBias* VA1= static_cast<const VertexAccBias*>(_vertices[3]);      // 零偏 Bai
+
+    const VertexPose* VP2 = static_cast<const VertexPose*>(_vertices[4]);           // 位姿Tj
+    const VertexVelocity* VV2= static_cast<const VertexVelocity*>(_vertices[5]);    // 速度Vj
+    // 更新后的零偏
     const IMU::Bias b1(VA1->estimate()[0],VA1->estimate()[1],VA1->estimate()[2],VG1->estimate()[0],VG1->estimate()[1],VG1->estimate()[2]);
+    // 旧零偏 与 新零偏间的 增量
     const IMU::Bias db = mpInt->GetDeltaBias(b1);
     Eigen::Vector3d dbg;
     dbg << db.bwx, db.bwy, db.bwz;
 
-    const Eigen::Matrix3d Rwb1 = VP1->estimate().Rwb;
-    const Eigen::Matrix3d Rbw1 = Rwb1.transpose();
-    const Eigen::Matrix3d Rwb2 = VP2->estimate().Rwb;
+    const Eigen::Matrix3d Rwb1 = VP1->estimate().Rwb;   // Ri
+    const Eigen::Matrix3d Rbw1 = Rwb1.transpose();      // Ri^T
+    const Eigen::Matrix3d Rwb2 = VP2->estimate().Rwb;   // Rj
 
-    const Eigen::Matrix3d dR = mpInt->GetDeltaRotation(b1).cast<double>();
-    const Eigen::Matrix3d eR = dR.transpose()*Rbw1*Rwb2;
-    const Eigen::Vector3d er = LogSO3(eR);
-    const Eigen::Matrix3d invJr = InverseRightJacobianSO3(er);
+    // 零偏更新后的 旋转预积分量
+    const Eigen::Matrix3d dR = mpInt->GetDeltaRotation(b1).cast<double>();  // △R~-_i,j
 
-    // Jacobians wrt Pose 1
+    // 旋转残差 r_△Rij = Log[△R~-_i,j^T *  Ri^T * Rj]
+    const Eigen::Matrix3d eR = dR.transpose() * Rbw1 * Rwb2;
+    const Eigen::Vector3d er = LogSO3(eR);      // r_△Rij(φ)
+
+    // 计算右乘雅可比矩阵的 逆矩阵
+    const Eigen::Matrix3d invJr = InverseRightJacobianSO3(er);  // Jr^-1[r_△Rij(φ)]
+
+    // _jacobianOplus个数等于边的个数，里面的大小等于 观测值维度（即残差）× 每个节点待优化值的维度
+    // _jacobianOplus[0] 为9x6矩阵，为旋转、速度、位置残差分别对 pose1 的旋转(Ri) 与 平移(pi) 求导
     _jacobianOplus[0].setZero();
-     // rotation
-    _jacobianOplus[0].block<3,3>(0,0) = -invJr*Rwb2.transpose()*Rwb1; // OK
-    _jacobianOplus[0].block<3,3>(3,0) = Sophus::SO3d::hat(Rbw1*(VV2->estimate() - VV1->estimate() - g*dt)); // OK
-    _jacobianOplus[0].block<3,3>(6,0) = Sophus::SO3d::hat(Rbw1*(VP2->estimate().twb - VP1->estimate().twb
-                                                   - VV1->estimate()*dt - 0.5*g*dt*dt)); // OK
-    // translation
-    _jacobianOplus[0].block<3,3>(6,3) = -Eigen::Matrix3d::Identity(); // OK
+    _jacobianOplus[0].block<3,3>(0,0) = -invJr * Rwb2.transpose() * Rwb1;   // 旋转残差 对pose1的旋转(Ri)求导 (15-75)
+    _jacobianOplus[0].block<3,3>(3,0) = Sophus::SO3d::hat(Rbw1 * ( VV2->estimate() - VV1->estimate() - g*dt )); // 速度残差 对pose1的旋转(Ri)求导 (15-89)
+    _jacobianOplus[0].block<3,3>(6,0) = Sophus::SO3d::hat(Rbw1 * ( VP2->estimate().twb - VP1->estimate().twb - VV1->estimate()*dt - 0.5*g*dt*dt )); // 位置残差 对pose1的旋转(Ri)求导 (15-101)
+
+    _jacobianOplus[0].block<3,3>(6,3) = -Eigen::Matrix3d::Identity();   // 位置残差 对pose1的位置(pi)求导 (15-97)
 
     // Jacobians wrt Velocity 1
+    // _jacobianOplus[1] 为9x3矩阵, 旋转、速度、位置残差分别对 pose1的 速度(vi) 求导
     _jacobianOplus[1].setZero();
-    _jacobianOplus[1].block<3,3>(3,0) = -Rbw1; // OK
-    _jacobianOplus[1].block<3,3>(6,0) = -Rbw1*dt; // OK
+    _jacobianOplus[1].block<3, 3>(3,0) = -Rbw1;      // (15-85)
+    _jacobianOplus[1].block<3, 3>(6,0) = -Rbw1*dt;   // (15-99)
 
     // Jacobians wrt Gyro 1
+    // _jacobianOplus[2] 为9x3矩阵, 旋转、速度、位置残差分别对 陀螺仪零偏(bgi) 求导
     _jacobianOplus[2].setZero();
-    _jacobianOplus[2].block<3,3>(0,0) = -invJr*eR.transpose()*RightJacobianSO3(JRg*dbg)*JRg; // OK
-    _jacobianOplus[2].block<3,3>(3,0) = -JVg; // OK
-    _jacobianOplus[2].block<3,3>(6,0) = -JPg; // OK
+    _jacobianOplus[2].block<3,3>(0,0) = -invJr * eR.transpose() * RightJacobianSO3(JRg*dbg) * JRg;      // (15-79)
+    _jacobianOplus[2].block<3,3>(3,0) = -JVg;   // (15-82)
+    _jacobianOplus[2].block<3,3>(6,0) = -JPg;   // (15-92)
 
     // Jacobians wrt Accelerometer 1
+    // _jacobianOplus[3] 为9x3矩阵, 旋转、速度、位置残差分别对 加速度计零偏(bai) 求导
     _jacobianOplus[3].setZero();
-    _jacobianOplus[3].block<3,3>(3,0) = -JVa; // OK
-    _jacobianOplus[3].block<3,3>(6,0) = -JPa; // OK
+    _jacobianOplus[3].block<3,3>(3,0) = -JVa;   // (15-83)
+    _jacobianOplus[3].block<3,3>(6,0) = -JPa;   // (15-93)
 
     // Jacobians wrt Pose 2
+    // _jacobianOplus[4] 为9x6矩阵, 旋转、速度、位置残差分别对 pose2的 旋转(Rj) 与 平移(pj) 求导
     _jacobianOplus[4].setZero();
-    // rotation
-    _jacobianOplus[4].block<3,3>(0,0) = invJr; // OK
-    // translation
-    _jacobianOplus[4].block<3,3>(6,3) = Rbw1*Rwb2; // OK
+    _jacobianOplus[4].block<3,3>(0,0) = invJr;  // 旋转残差对 Rj 的雅可比(15-77)
+    _jacobianOplus[4].block<3,3>(6,3) = Rbw1 * Rwb2;   // 位置残差对 pj 的雅可比(15-95)
 
     // Jacobians wrt Velocity 2
+    // _jacobianOplus[5] 为9x3矩阵, 旋转、速度、位置残差分别对 pose2的 速度(vj) 求导
     _jacobianOplus[5].setZero();
-    _jacobianOplus[5].block<3,3>(3,0) = Rbw1; // OK
+    _jacobianOplus[5].block<3,3>(3,0) = Rbw1;   // (15-87)
 }
 
+// localmapping中imu初始化所用的边，除了正常的几个优化变量外还优化了重力方向与尺度
 EdgeInertialGS::EdgeInertialGS(IMU::Preintegrated *pInt):JRg(pInt->JRg.cast<double>()),
     JVg(pInt->JVg.cast<double>()), JPg(pInt->JPg.cast<double>()), JVa(pInt->JVa.cast<double>()),
     JPa(pInt->JPa.cast<double>()), mpInt(pInt), dt(pInt->dT)
@@ -813,21 +834,33 @@ Eigen::Vector3d LogSO3(const Eigen::Matrix3d &R)
         return theta*w/s;
 }
 
+/**
+ * @brief 计算 右乘雅可比矩阵的 逆矩阵
+ * @param v 输入旋转向量
+ */
 Eigen::Matrix3d InverseRightJacobianSO3(const Eigen::Vector3d &v)
 {
     return InverseRightJacobianSO3(v[0],v[1],v[2]);
 }
 
+/**
+ * @brief 计算 右乘雅可比矩阵的 逆矩阵
+ * @param x, y, z   旋转向量的三个分量
+ */
 Eigen::Matrix3d InverseRightJacobianSO3(const double x, const double y, const double z)
 {
-    const double d2 = x*x+y*y+z*z;
+    // 旋转向量模长
+    const double d2 = x*x + y*y + z*z;
     const double d = sqrt(d2);
 
+    // 旋转向量的 反对称矩阵
     Eigen::Matrix3d W;
     W << 0.0, -z, y,z, 0.0, -x,-y,  x, 0.0;
-    if(d<1e-5)
+    if(d < 1e-5)
+        // 右乘雅可比矩阵的逆矩阵 ≈ 单位矩阵
         return Eigen::Matrix3d::Identity();
     else
+        // 右乘雅可比矩阵的逆矩阵 = 单位矩阵 + 反对称矩阵的一半 + 反对称矩阵的平方 * 系数(由旋转向量的模长和三角函数值决定) (15-9)
         return Eigen::Matrix3d::Identity() + W/2 + W*W*(1.0/d2 - (1.0+cos(d))/(2.0*d*sin(d)));
 }
 

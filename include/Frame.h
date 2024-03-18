@@ -207,43 +207,45 @@ public:
     static float cy;
     static float invfx;
     static float invfy;
-    cv::Mat mDistCoef;
+    cv::Mat mDistCoef;  // 去畸变参数
 
     // Stereo baseline multiplied by fx.
     float mbf;
 
     // Stereo baseline in meters.
-    float mb;
+    float mb;   // 基线
 
     // Threshold close/far points. Close points are inserted from 1 view.
     // Far points are inserted as in the monocular case from 2 views.
     float mThDepth;
 
-    // Number of KeyPoints.
+    // Number of KeyPoints. 特征点的个数
     int N;
 
     // Vector of keypoints (original for visualization) and undistorted (actually used by the system).
-    // In the stereo case, mvKeysUn is redundant as images must be rectified.
-    // In the RGB-D case, RGB images can be distorted.
-    std::vector<cv::KeyPoint> mvKeys, mvKeysRight;
-    std::vector<cv::KeyPoint> mvKeysUn;
+    // In the stereo case, mvKeysUn is redundant as images must be rectified. 在双目情况下，mvKeysUn是多余的，因为图像必须经过校正。
+    // In the RGB-D case, RGB images can be distorted. 在RGB-D情况下，RGB图像可能会失真。
+    std::vector<cv::KeyPoint> mvKeys, mvKeysRight;  // 左右目的特征点
+    std::vector<cv::KeyPoint> mvKeysUn; // 去畸变校正后的左目特征点
 
     // Corresponding stereo coordinate and depth for each keypoint.
-    std::vector<MapPoint*> mvpMapPoints;
+    std::vector<MapPoint*> mvpMapPoints;    // 该帧特征点对应的 3D 地图点
     // "Monocular" keypoints have a negative value.
     std::vector<float> mvuRight;
     std::vector<float> mvDepth;
 
     // Bag of Words Vector structures.
+    // 词袋向量
     DBoW2::BowVector mBowVec;
     DBoW2::FeatureVector mFeatVec;
 
     // ORB descriptor, each row associated to a keypoint.
-    cv::Mat mDescriptors, mDescriptorsRight;
+    cv::Mat mDescriptors, mDescriptorsRight;    // 描述子，每行对应一个特征点
 
     // MapPoints associated to keypoints, NULL pointer if no association.
     // Flag to identify outlier associations.
-    std::vector<bool> mvbOutlier;
+    std::vector<bool> mvbOutlier;   // 表示当前帧中 每个特征点 是否 被判定为 外点, 构建帧时默认设为false。
+                                    // 在optimize里可能会被置为true
     int mnCloseMPs;
 
     // Keypoints are assigned to cells in a grid to reduce matching complexity when projecting MapPoints.
@@ -316,7 +318,7 @@ private:
     // Assign keypoints to the grid for speed up feature matching (called in the constructor).
     void AssignFeaturesToGrid();
 
-    bool mbIsSet;
+    bool mbIsSet;   // 位姿设置 标志
 
     bool mbImuPreintegrated;
 
@@ -327,7 +329,7 @@ public:
 
     //Number of KeyPoints extracted in the left and right images
     int Nleft, Nright;
-    //Number of Non Lapping Keypoints
+    //Number of Non Lapping Keypoints 单目图像提取的所有图层的特征点个数
     int monoLeft, monoRight;
 
     //For stereo matching

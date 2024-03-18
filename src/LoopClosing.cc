@@ -1868,6 +1868,7 @@ void LoopClosing::MergeLocal2()
         // Set map initialized
         pCurrentMap->SetIniertialBA2();
         pCurrentMap->SetIniertialBA1();
+        std::cout << "\t\t回环中设置IMU初始化完成" << std::endl;
         pCurrentMap->SetImuInitialized();
 
     }

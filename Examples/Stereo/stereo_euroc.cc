@@ -32,7 +32,7 @@ void LoadImages(const string &strPathLeft, const string &strPathRight, const str
                 vector<string> &vstrImageLeft, vector<string> &vstrImageRight, vector<double> &vTimeStamps);
 
 int main(int argc, char **argv)
-{  
+{
     if(argc < 5)
     {
         cerr << endl << "Usage: ./stereo_euroc path_to_vocabulary path_to_settings path_to_sequence_folder_1 path_to_times_file_1 (path_to_image_folder_2 path_to_times_file_2 ... path_to_image_folder_N path_to_times_file_N) (trajectory_file_name)" << endl;
@@ -84,14 +84,14 @@ int main(int argc, char **argv)
     vector<float> vTimesTrack;
     vTimesTrack.resize(tot_images);
 
-    cout << endl << "-------" << endl;
+    cout << endl << "-------------------" << endl;
     cout.precision(17);
 
     // Create SLAM system. It initializes all system threads and gets ready to process frames.
     ORB_SLAM3::System SLAM(argv[1],argv[2],ORB_SLAM3::System::STEREO, true);
 
     cv::Mat imLeft, imRight;
-    for (seq = 0; seq<num_seq; seq++)
+    for (seq = 0; seq < num_seq; seq++)
     {
 
         // Seq loop
@@ -100,7 +100,7 @@ int main(int argc, char **argv)
         double t_track = 0;
         int num_rect = 0;
         int proccIm = 0;
-        for(int ni=0; ni<nImages[seq]; ni++, proccIm++)
+        for(int ni = 0; ni < nImages[seq]; ni++, proccIm++)
         {
             // Read left and right images from file
             imLeft = cv::imread(vstrImageLeft[seq][ni],cv::IMREAD_UNCHANGED); //,cv::IMREAD_UNCHANGED);

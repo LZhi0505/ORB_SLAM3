@@ -97,58 +97,91 @@ namespace ORB_SLAM3 {
     }
 
     //RANSAC methods
+    /**
+     * @brief MLPnP迭代计算相机位姿
+     *
+     * @param[in] nIterations   迭代次数
+     * @param[in] bNoMore       达到最大迭代次数的标志
+     * @param[in] vbInliers     内点的标记
+     * @param[in] nInliers      总共内点数
+     * @return cv::Mat          计算出来的位姿
+     */
     bool MLPnPsolver::iterate(int nIterations, bool &bNoMore, vector<bool> &vbInliers, int &nInliers, Eigen::Matrix4f &Tout){
         Tout.setIdentity();
-        bNoMore = false;
-	    vbInliers.clear();
-	    nInliers=0;
+        bNoMore = false;    // 已经达到最大迭代次数的标志
+	    vbInliers.clear();  // 清除保存判断是否是内点的容器
+	    nInliers=0;         // 当前次迭代时的内点数
+                            // N为所有2D点的个数, mRansacMinInliers为正常退出RANSAC迭代过程中最少的inlier数
 
-	    if(N<mRansacMinInliers)
+        // Step 1: 判断，如果2D点个数不足以启动RANSAC迭代过程的最小下限，则退出
+	    if(N < mRansacMinInliers)
 	    {
-	        bNoMore = true;
-	        return false;
+	        bNoMore = true; // 已经达到最大迭代次数
+	        return false;   // 函数退出
 	    }
 
+        // mvAllIndices: 所有参与PnP的2D点的索引
+        // vAvailableIndices: 每次从 mvAllIndices 中随机挑选 mRansacMinSet 组3D-2D对应点进行一次RANSAC
 	    vector<size_t> vAvailableIndices;
 
+        // 当前的迭代次数id
 	    int nCurrentIterations = 0;
+
+        // Step 2: 正常迭代计算进行相机位姿估计，如果满足效果上限，直接返回最佳估计结果，否则就继续利用最小集(6个点)估计位姿
+        // 进行迭代的条件:
+        // 条件1: 历史进行的迭代次数少于最大迭代值
+        // 条件2: 当前进行的迭代次数少于当前函数给定的最大迭代值
 	    while(mnIterations<mRansacMaxIts || nCurrentIterations<nIterations)
 	    {
+            // 迭代次数更新加1，直到达到最大迭代次数
 	        nCurrentIterations++;
 	        mnIterations++;
 
+            // 清空已有的匹配点的计数,为新的一次迭代作准备
 	        vAvailableIndices = mvAllIndices;
 
             //Bearing vectors and 3D points used for this ransac iteration
+            // 初始化单位向量和3D点，给当前ransac迭代使用
             bearingVectors_t bearingVecs(mRansacMinSet);
             points_t p3DS(mRansacMinSet);
             vector<int> indexes(mRansacMinSet);
 
 	        // Get min set of points
+            // 选取最小集,从vAvailableIndices中选取mRansacMinSet个点进行操作，这里应该是6
 	        for(short i = 0; i < mRansacMinSet; ++i)
 	        {
+                // 在所有备选点中随机抽取一个，通过随机抽取索引数组vAvailableIndices的索引[randi]来实现
 	            int randi = DUtils::Random::RandomInt(0, vAvailableIndices.size()-1);
 
+                // vAvailableIndices[randi]才是备选点真正的索引值，randi是索引数组的索引值，不要搞混了
 	            int idx = vAvailableIndices[randi];
 
                 bearingVecs[i] = mvBearingVecs[idx];
                 p3DS[i] = mvP3Dw[idx];
                 indexes[i] = i;
 
+                // 把抽取出来的点从所有备选点数组里删除掉，概率论中不放回的操作
 	            vAvailableIndices[randi] = vAvailableIndices.back();
 	            vAvailableIndices.pop_back();
-	        }
+	        }// 选取最小集结束
 
             //By the moment, we are using MLPnP without covariance info
+            //  目前为止，还没有使用协方差的信息，所以这里生成一个size=1的值为0的协方差矩阵
+            //            |0 0 0|
+            //  covs[0] = |0 0 0|
+            //            |0 0 0|
+            //  ? 为什么不用协方差的SVD分解，计算耗时还是效果不明显？
             cov3_mats_t covs(1);
 
             //Result
             transformation_t result;
 
 	        // Compute camera pose
+            // 相机位姿估计，MLPnP最主要的操作在这里
             computePose(bearingVecs,p3DS,covs,indexes,result);
 
             //Save result
+            //  论文中12个待求值赋值保存在mRi中，每个求解器都有保存各自的计算结果
             mRi[0][0] = result(0,0);
             mRi[0][1] = result(0,1);
             mRi[0][2] = result(0,2);
@@ -164,15 +197,17 @@ namespace ORB_SLAM3 {
             mti[0] = result(0,3);mti[1] = result(1,3);mti[2] = result(2,3);
 
 	        // Check inliers
+            // 卡方检验内点，和EPnP基本类似
 	        CheckInliers();
 
 	        if(mnInliersi>=mRansacMinInliers)
 	        {
 	            // If it is the best solution so far, save it
-	            if(mnInliersi>mnBestInliers)
+                // 如果该结果是目前内点数最多的，说明该结果是目前最好的，保存起来
+	            if(mnInliersi > mnBestInliers)
 	            {
-	                mvbBestInliers = mvbInliersi;
-	                mnBestInliers = mnInliersi;
+	                mvbBestInliers = mvbInliersi;   // 每个点是否是内点的标记
+	                mnBestInliers = mnInliersi;     // 内点个数
 
 	                cv::Mat Rcw(3,3,CV_64F,mRi);
 	                cv::Mat tcw(3,1,CV_64F,mti);
@@ -186,6 +221,7 @@ namespace ORB_SLAM3 {
                     Eigen::Vector3d eigtcw(mti);
 	            }
 
+                // 用新的内点对相机位姿精求解，提高位姿估计精度，这里如果有足够内点的话，函数直接返回该值，不再继续计算
 	            if(Refine())
 	            {
 	                nInliers = mnRefinedInliers;
@@ -200,12 +236,15 @@ namespace ORB_SLAM3 {
 	            }
 
 	        }
-	    }
+	    } // 迭代
 
-	    if(mnIterations>=mRansacMaxIts)
+        // Step 3: 选择最小集中效果最好的相机位姿估计结果,如果没有，只能用6个点去计算这个值了
+        // 程序运行到这里，说明Refine失败了，说明精求解过程中，内点的个数不满足最小阈值，那就只能在当前结果中选择内点数最多的那个最小集
+        // 但是也意味着这样子的结果最终是用6个点来求出来的，近似效果一般
+	    if(mnIterations >= mRansacMaxIts)
 	    {
-	        bNoMore=true;
-	        if(mnBestInliers>=mRansacMinInliers)
+	        bNoMore = true;
+	        if(mnBestInliers >= mRansacMinInliers)
 	        {
 	            nInliers=mnBestInliers;
 	            vbInliers = vector<bool>(mvpMapPointMatches.size(),false);
@@ -219,6 +258,8 @@ namespace ORB_SLAM3 {
 	        }
 	    }
 
+        // step 4：相机位姿估计失败，返回零值
+        // 程序运行到这里，那说明没有满足条件的相机位姿估计结果，位姿估计失败了
 	    return false;
 	}
 
@@ -353,6 +394,16 @@ namespace ORB_SLAM3 {
     }
 
 	//MLPnP methods
+    /**
+     * @brief MLPnP相机位姿估计
+     *
+     * @param[in] f             单位向量
+     * @param[in] p             点的3D坐标
+     * @param[in] covMats       协方差矩阵
+     * @param[in] indices       对应点的索引值
+     * @param[in] result        相机位姿估计结果
+     *
+     */
     void MLPnPsolver::computePose(const bearingVectors_t &f, const points_t &p, const cov3_mats_t &covMats,
                                   const std::vector<int> &indices, transformation_t &result) {
         size_t numberCorrespondences = indices.size();

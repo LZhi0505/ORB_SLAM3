@@ -40,9 +40,9 @@ namespace ORB_SLAM3
 namespace IMU
 {
 
-const float GRAVITY_VALUE=9.81;
+const float GRAVITY_VALUE = 9.81;
 
-//IMU measurement (gyro, accelerometer and timestamp)
+// IMU measurement (gyro, accelerometer and timestamp)
 class Point
 {
 public:
@@ -58,7 +58,9 @@ public:
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 };
 
-//IMU biases (gyro and accelerometer)
+/**
+ * IMU 零偏 (陀螺仪和加速度计)
+ */
 class Bias
 {
     friend class boost::serialization::access;
@@ -88,7 +90,9 @@ public:
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 };
 
-//IMU calibration (Tbc, Tcb, noise)
+/**
+ * IMU内参 (Tbc, Tcb, noise)
+ */
 class Calib
 {
     friend class boost::serialization::access;
@@ -125,7 +129,7 @@ public:
     bool mbIsSet;
 };
 
-//Integration of 1 gyro measurement
+// Integration of 1 gyro measurement
 class IntegratedRotation
 {
 public:
@@ -139,7 +143,10 @@ public:
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 };
 
-//Preintegration of Imu Measurements
+// Preintegration of Imu Measurements
+/**
+ * IMU预积分
+ */
 class Preintegrated
 {
     friend class boost::serialization::access;
@@ -214,18 +221,24 @@ public:
     Eigen::DiagonalMatrix<float,6> Nga, NgaWalk;
 
     // Values for the original bias (when integration was computed)
+    // 初始零偏
     Bias b;
+    // 旋转预积分
     Eigen::Matrix3f dR;
+    // 速度、位置预积分
     Eigen::Vector3f dV, dP;
+    //
     Eigen::Matrix3f JRg, JVg, JVa, JPg, JPa;
     Eigen::Vector3f avgA, avgW;
 
 
 private:
     // Updated bias
+    // 更新后的零偏
     Bias bu;
     // Dif between original and updated bias
     // This is used to compute the updated values of the preintegration
+    // 零偏的 增量
     Eigen::Matrix<float,6,1> db;
 
     struct integrable
@@ -261,6 +274,6 @@ Eigen::Matrix3f NormalizeRotation(const Eigen::Matrix3f &R);
 
 }
 
-} //namespace ORB_SLAM2
+} //namespace ORB_SLAM3
 
 #endif // IMUTYPES_H

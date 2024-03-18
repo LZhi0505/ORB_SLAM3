@@ -57,9 +57,15 @@ Map::~Map()
     mvpKeyFrameOrigins.clear();
 }
 
+/**
+ * @brief 将该关键帧KF插入到当前活跃子地图对应成员变量的容器中
+ * @param pKF
+ */
 void Map::AddKeyFrame(KeyFrame *pKF)
 {
     unique_lock<mutex> lock(mMutexMap);
+
+    // 当前活跃地图为空
     if(mspKeyFrames.empty()){
         cout << "First KF:" << pKF->mnId << "; Map init KF:" << mnInitKFid << endl;
         mnInitKFid = pKF->mnId;
@@ -67,11 +73,11 @@ void Map::AddKeyFrame(KeyFrame *pKF)
         mpKFlowerID = pKF;
     }
     mspKeyFrames.insert(pKF);
-    if(pKF->mnId>mnMaxKFid)
+    if(pKF->mnId > mnMaxKFid)
     {
-        mnMaxKFid=pKF->mnId;
+        mnMaxKFid = pKF->mnId;
     }
-    if(pKF->mnId<mpKFlowerID->mnId)
+    if(pKF->mnId < mpKFlowerID->mnId)
     {
         mpKFlowerID = pKF;
     }
@@ -248,36 +254,59 @@ bool Map::IsBad()
     return mbBad;
 }
 
-
+/** 恢复地图的尺度及重力方向，即更新每个关键帧在重力坐标系下的 位姿 和 速度，更新每个地图点在重力坐标系下的 坐标
+ * IMU在LocalMapping中初始化，LocalMapping::InitializeIMU中使用，误差包含三个残差与两个偏置。地图融合时也会使用
+ * @param T 世界坐标系到重力坐标系的变换矩阵 Tgw
+ * @param s 尺度
+ * @param bScaledVel 是否用尺度更新速度
+ */
 void Map::ApplyScaledRotation(const Sophus::SE3f &T, const float s, const bool bScaledVel)
 {
     unique_lock<mutex> lock(mMutexMap);
 
     // Body position (IMU) of first keyframe is fixed to (0,0,0)
     Sophus::SE3f Tyw = T;
-    Eigen::Matrix3f Ryw = Tyw.rotationMatrix();
-    Eigen::Vector3f tyw = Tyw.translation();
+    Eigen::Matrix3f Ryw = Tyw.rotationMatrix(); // 世界坐标系到重力坐标系的旋转矩阵 Rgw
+    Eigen::Vector3f tyw = Tyw.translation();    // cv::Mat::zeros(cv::Size(1,3),CV_32F)
 
-    for(set<KeyFrame*>::iterator sit=mspKeyFrames.begin(); sit!=mspKeyFrames.end(); sit++)
+    // 遍历每个关键帧，更新其在重力坐标系下的 位姿 和 速度
+    for(set<KeyFrame*>::iterator sit = mspKeyFrames.begin(); sit != mspKeyFrames.end(); sit++)
     {
+        /**
+         * 在平移上乘以尺度s
+         * | Rw2w1  tw2w1 |   *   | Rw1c  s*tw1c  |     =    |  Rw2c     s*Rw2w1*tw1c + tw2w1  |
+         * |   0      1   |       |  0       1    |          |   0                1            |
+         * 比正常乘在旋转上少了个s，后面不需要这个s了，因为所有mp在下面已经全部转到了w2坐标系下，不存在尺度变化了
+         *
+         * | s*Rw2w1  tw2w1 |   *   | Rw1c    tw1c  |     =    |  s*Rw2c     s*Rw2w1*tw1c + tw2w1  |
+         * |   0        1   |       |  0       1    |          |     0                1            |
+         */
         KeyFrame* pKF = *sit;
-        Sophus::SE3f Twc = pKF->GetPoseInverse();
-        Twc.translation() *= s;
-        Sophus::SE3f Tyc = Tyw*Twc;
+        Sophus::SE3f Twc = pKF->GetPoseInverse();   // 该关键帧的逆位姿
+        Twc.translation() *= s; // 平移部分 * 尺度，缩放关键帧的位置
+
+        // 更新该关键帧 在重力坐标系下的 位姿
+        // |  Ryc     s*Ryw*twc + tyw  |
+        // |   0           1           |
+        Sophus::SE3f Tyc = Tyw * Twc;
         Sophus::SE3f Tcy = Tyc.inverse();
         pKF->SetPose(Tcy);
-        Eigen::Vector3f Vw = pKF->GetVelocity();
+
+        // 更新该关键帧 在重力坐标系下的 速度
+        Eigen::Vector3f Vw = pKF->GetVelocity();    // 关键帧在世界坐标系下的速度
         if(!bScaledVel)
-            pKF->SetVelocity(Ryw*Vw);
+            pKF->SetVelocity(Ryw * Vw); // 旋转关键帧的速度 至 重力坐标系下
         else
-            pKF->SetVelocity(Ryw*Vw*s);
+            pKF->SetVelocity(Ryw * Vw * s);
 
     }
+
+    // 遍历每个地图点，更新其在重力坐标系下的 坐标
     for(set<MapPoint*>::iterator sit=mspMapPoints.begin(); sit!=mspMapPoints.end(); sit++)
     {
         MapPoint* pMP = *sit;
-        pMP->SetWorldPos(s * Ryw * pMP->GetWorldPos() + tyw);
-        pMP->UpdateNormalAndDepth();
+        pMP->SetWorldPos(s * Ryw * pMP->GetWorldPos() + tyw);   // 旋转并缩放3D点的坐标 至 重力坐标系下
+        pMP->UpdateNormalAndDepth();    // 更新其平均观测方向、最大距离、最小距离
     }
     mnMapChange++;
 }

@@ -59,7 +59,7 @@ namespace ORB_SLAM3 {
         ~GeometricCamera() {}
 
         virtual cv::Point2f project(const cv::Point3f &p3D) = 0;
-        virtual Eigen::Vector2d project(const Eigen::Vector3d & v3D) = 0;
+        virtual Eigen::Vector2d project(const Eigen::Vector3d & v3D) = 0;   // 相机坐标系下的三维点投影到无畸变像素平面
         virtual Eigen::Vector2f project(const Eigen::Vector3f & v3D) = 0;
         virtual Eigen::Vector2f projectMat(const cv::Point3f& p3D) = 0;
 

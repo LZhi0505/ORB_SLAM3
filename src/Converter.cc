@@ -21,25 +21,35 @@
 namespace ORB_SLAM3
 {
 
+/**
+ * @brief 将描述子转换为描述子向量，其实本质上是cv:Mat->std:vector
+ */
 std::vector<cv::Mat> Converter::toDescriptorVector(const cv::Mat &Descriptors)
 {
-    std::vector<cv::Mat> vDesc;
-    vDesc.reserve(Descriptors.rows);
+    std::vector<cv::Mat> vDesc; // 存储转换结果的向量
+    vDesc.reserve(Descriptors.rows);    // 创建保留空间
+    // 对于每一个特征点的描述子
     for (int j=0;j<Descriptors.rows;j++)
-        vDesc.push_back(Descriptors.row(j));
+        vDesc.push_back(Descriptors.row(j));    //从描述子这个矩阵中抽取出来存到向量中
 
     return vDesc;
 }
 
+/**
+ * @brief 将变换矩阵转换为李代数se3：cv:Mat->g2o::SE3Quat
+ */
 g2o::SE3Quat Converter::toSE3Quat(const cv::Mat &cvT)
 {
+    // 首先将旋转矩阵提取出来
     Eigen::Matrix<double,3,3> R;
     R << cvT.at<float>(0,0), cvT.at<float>(0,1), cvT.at<float>(0,2),
          cvT.at<float>(1,0), cvT.at<float>(1,1), cvT.at<float>(1,2),
          cvT.at<float>(2,0), cvT.at<float>(2,1), cvT.at<float>(2,2);
 
+    // 然后将平移向量提取出来
     Eigen::Matrix<double,3,1> t(cvT.at<float>(0,3), cvT.at<float>(1,3), cvT.at<float>(2,3));
 
+    // 构造g2o::SE3Quat类型并返回
     return g2o::SE3Quat(R,t);
 }
 
@@ -236,6 +246,9 @@ Eigen::Matrix<float,4,4> Converter::toMatrix4f(const cv::Mat &cvMat4)
     return M;
 }
 
+/**
+ * @brief cv::Mat -> Eigen::Matrix<float,4,4>
+ */
 std::vector<float> Converter::toQuaternion(const cv::Mat &M)
 {
     Eigen::Matrix<double,3,3> eigMat = toMatrix3d(M);
@@ -250,6 +263,9 @@ std::vector<float> Converter::toQuaternion(const cv::Mat &M)
     return v;
 }
 
+/**
+ * @brief 反对称
+ */
 cv::Mat Converter::tocvSkewMatrix(const cv::Mat &v)
 {
     return (cv::Mat_<float>(3,3) <<             0, -v.at<float>(2), v.at<float>(1),
@@ -268,6 +284,9 @@ bool Converter::isRotationMatrix(const cv::Mat &R)
 
 }
 
+/**
+ * @brief 旋转矩阵转欧拉角
+ */
 std::vector<float> Converter::toEuler(const cv::Mat &R)
 {
     assert(isRotationMatrix(R));
@@ -297,10 +316,15 @@ std::vector<float> Converter::toEuler(const cv::Mat &R)
     return v_euler;
 }
 
+/**
+ * @brief 转成Sophus::SE3<float>
+ */
 Sophus::SE3<float> Converter::toSophus(const cv::Mat &T) {
+    // 旋转矩阵
     Eigen::Matrix<double,3,3> eigMat = toMatrix3d(T.rowRange(0,3).colRange(0,3));
     Eigen::Quaternionf q(eigMat.cast<float>());
 
+    // 平移向量
     Eigen::Matrix<float,3,1> t = toVector3d(T.rowRange(0,3).col(3)).cast<float>();
 
     return Sophus::SE3<float>(q,t);

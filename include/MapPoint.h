@@ -145,10 +145,12 @@ public:
 
     cv::Mat GetDescriptor();
 
-    void UpdateNormalAndDepth();
+    void UpdateNormalAndDepth();    // 更新平均观测距离和方向
 
     float GetMinDistanceInvariance();
     float GetMaxDistanceInvariance();
+
+    // 估计当前地图点在某Frame中对应特征点的金字塔层级
     int PredictScale(const float &currentDist, KeyFrame*pKF);
     int PredictScale(const float &currentDist, Frame* pF);
 
@@ -163,9 +165,9 @@ public:
 public:
     long unsigned int mnId;
     static long unsigned int nNextId;
-    long int mnFirstKFid;
-    long int mnFirstFrame;
-    int nObs;
+    long int mnFirstKFid;   // 第一次观测/生成该地图点的关键帧 ID
+    long int mnFirstFrame;  // 创建该地图点的帧ID(因为关键帧也是帧啊)
+    int nObs;       // 记录了当前地图点被多少个关键帧相机观测到了(单目关键帧每次观测算1个相机,双目/RGBD帧每次观测算2个相机)
 
     // Variables used by the tracking
     float mTrackProjX;
@@ -174,10 +176,10 @@ public:
     float mTrackDepthR;
     float mTrackProjXR;
     float mTrackProjYR;
-    bool mbTrackInView, mbTrackInViewR;
+    bool mbTrackInView, mbTrackInViewR;     // 局部地图中，除当前帧能够看到的地图点外 的地图点 是否在当前帧的视野范围内。所以当前帧的地图点、TrackWithMotionModel、TrackReferenceKeyFrame中优化后的外点 的mbTrackInView 标记为false
     int mnTrackScaleLevel, mnTrackScaleLevelR;
     float mTrackViewCos, mTrackViewCosR;
-    long unsigned int mnTrackReferenceForFrame;
+    long unsigned int mnTrackReferenceForFrame;     // = x，表示该地图点是 某帧x 的局部地图点
     long unsigned int mnLastFrameSeen;
 
     // Variables used by local mapping
@@ -207,30 +209,32 @@ public:
 
     unsigned int mnOriginMapId;
 
-protected:    
+protected:
 
      // Position in absolute coordinates
-     Eigen::Vector3f mWorldPos;
+     Eigen::Vector3f mWorldPos;     // 地图点在世界坐标系下的 坐标，是个列向量
 
      // Keyframes observing the point and associated index in keyframe
-     std::map<KeyFrame*,std::tuple<int,int> > mObservations;
+     // map类型的容器：key:观测到该地图点的关键帧，value:该地图点在该关键帧KF中的索引，默认为<-1,-1>；如果是单目或立体匹配双目，则为<idx,-1>；如果是非立体匹配双目且idx在右目中，则为<-1,idx>
+     std::map<KeyFrame*, std::tuple<int,int> > mObservations;
+
      // For save relation without pointer, this is necessary for save/load function
      std::map<long unsigned int, int> mBackupObservationsId1;
      std::map<long unsigned int, int> mBackupObservationsId2;
 
      // Mean viewing direction
-     Eigen::Vector3f mNormalVector;
+     Eigen::Vector3f mNormalVector;     // 平均观测方向
 
      // Best descriptor to fast matching
-     cv::Mat mDescriptor;
+     cv::Mat mDescriptor;       // 地图点的描述子，是其在所有观测关键帧中描述子的中位数(准确地说,该描述子与其他所有描述子的中值距离最小)
 
      // Reference KeyFrame
-     KeyFrame* mpRefKF;
+     KeyFrame* mpRefKF;     // 当前地图点的参考关键帧,生成该地图点的关键帧
      long unsigned int mBackupRefKFId;
 
      // Tracking counters
      int mnVisible;
-     int mnFound;
+     int mnFound;       // 找到该地图点的帧 的个数
 
      // Bad flag (we do not currently erase MapPoint from memory)
      bool mbBad;
@@ -239,10 +243,10 @@ protected:
      long long int mBackupReplacedId;
 
      // Scale invariance distances
-     float mfMinDistance;
-     float mfMaxDistance;
+     float mfMinDistance;   // 平均观测距离的下限，若地图点匹配在某特征提取器图像金字塔第0层上的某特征点,观测距离值。 当前地图点在某帧下,可信赖的被找到时其到关键帧光心距离的下界
+     float mfMaxDistance;   // 平均观测距离的上限，若地图点匹配在某特征提取器图像金字塔第7层上的某特征点,观测距离值
 
-     Map* mpMap;
+     Map* mpMap;    // 地图点所属地图
 
      // Mutex
      std::mutex mMutexPos;

@@ -85,7 +85,7 @@ public:
     std::vector<MapPoint*> GetAllMapPoints();
     std::vector<MapPoint*> GetReferenceMapPoints();
 
-    long unsigned int MapPointsInMap();
+    long unsigned int MapPointsInMap();     // 获取当前地图的地图点个数
     long unsigned  KeyFramesInMap();
 
     long unsigned int GetId();
@@ -159,8 +159,8 @@ protected:
 
     long unsigned int mnId;
 
-    std::set<MapPoint*> mspMapPoints;
-    std::set<KeyFrame*> mspKeyFrames;
+    std::set<MapPoint*> mspMapPoints;       // 当前地图拥有的 地图点集合
+    std::set<KeyFrame*> mspKeyFrames;       // 当前地图拥有的 关键帧集合
 
     // Save/load, the set structure is broken in libboost 1.58 for ubuntu 16.04, a vector is serializated
     std::vector<MapPoint*> mvpBackupMapPoints;

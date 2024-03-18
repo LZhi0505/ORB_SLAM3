@@ -118,6 +118,8 @@ public:
     // Proccess the given monocular frame and optionally imu data
     // Input images: RGB (CV_8UC3) or grayscale (CV_8U). RGB is converted to grayscale.
     // Returns the camera pose (empty if tracking fails).
+    // 处理给定的 单目帧 和 可选的IMU数据，返回相机位姿（如果跟踪失败，则为空）
+    // 输入图像：RGB（CV_8UC3）或灰度（CV_8U），RGB需转换为灰度
     Sophus::SE3f TrackMonocular(const cv::Mat &im, const double &timestamp, const vector<IMU::Point>& vImuMeas = vector<IMU::Point>(), string filename="");
 
 
@@ -213,8 +215,8 @@ private:
     Atlas* mpAtlas;
 
     // Tracker. It receives a frame and computes the associated camera pose.
-    // It also decides when to insert a new keyframe, create some new MapPoints and
-    // performs relocalization if tracking fails.
+    // It also decides when to insert a new keyframe, create some new MapPoints and performs relocalization if tracking fails.
+    // 接收一帧图像并计算与之相关的相机姿态。它还决定何时插入新的关键帧，创建一些新的MapPoints以及在跟踪失败时执行重新定位。
     Tracking* mpTracker;
 
     // Local Mapper. It manages the local map and performs local bundle adjustment.
@@ -225,6 +227,7 @@ private:
     LoopClosing* mpLoopCloser;
 
     // The viewer draws the map and the current camera pose. It uses Pangolin.
+    // 使用 Pangolin 画地图和当前相机的位姿
     Viewer* mpViewer;
 
     FrameDrawer* mpFrameDrawer;

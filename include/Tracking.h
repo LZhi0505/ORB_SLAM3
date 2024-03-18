@@ -108,6 +108,12 @@ public:
 
     float GetImageScale();
 
+    // ------------liuzhi加-----------------
+    void SaveSearchByBowFailed(Frame &F, KeyFrame* &KF, std::vector<MapPoint*> &vMapPointMatches, const int img_idx);
+    void SaveSearchByProjectionFailed();
+    void SaveTrackLocalMapFailed();
+    // ----------------------------------------
+
 #ifdef REGISTER_LOOP
     void RequestStop();
     bool isStopped();
@@ -131,6 +137,11 @@ public:
     eTrackingState mState;
     eTrackingState mLastProcessedState;
 
+    // ------- liuzhi加 -------
+    int trackOK_frame_num = 0;
+    int total_frame_num = 0;
+    // -----------------------
+
     // Input sensor
     int mSensor;
 
@@ -142,17 +153,17 @@ public:
 
     // Initialization Variables (Monocular)
     std::vector<int> mvIniLastMatches;
-    std::vector<int> mvIniMatches;
-    std::vector<cv::Point2f> mvbPrevMatched;
+    std::vector<int> mvIniMatches;      // 参考帧 和 当前帧 之间的匹配关系
+    std::vector<cv::Point2f> mvbPrevMatched;    // 初始参考帧的 特征点的 坐标 或者 当前帧中 与初始参考帧匹配好的 特征点的坐标
     std::vector<cv::Point3f> mvIniP3D;
     Frame mInitialFrame;
 
     // Lists used to recover the full camera trajectory at the end of the execution.
     // Basically we store the reference keyframe for each frame and its relative transformation
-    list<Sophus::SE3f> mlRelativeFramePoses;
-    list<KeyFrame*> mlpReferences;
-    list<double> mlFrameTimes;
-    list<bool> mlbLost;
+    list<Sophus::SE3f> mlRelativeFramePoses; // 存放 参考关键帧 到 当前帧的相对位姿 Tcr = Tcw * Twr
+    list<KeyFrame*> mlpReferences;  // 存放 当前帧的参考关键帧
+    list<double> mlFrameTimes;      // 存放 当前帧的时间戳
+    list<bool> mlbLost;             // 存放 当前帧是否跟踪丢失的状态
 
     // frames with estimated pose
     int mTrackedFr;
@@ -185,10 +196,10 @@ public:
     vector<double> vdResizeImage_ms;
     vector<double> vdORBExtract_ms;
     vector<double> vdStereoMatch_ms;
-    vector<double> vdIMUInteg_ms;
-    vector<double> vdPosePred_ms;
-    vector<double> vdLMTrack_ms;
-    vector<double> vdNewKF_ms;
+    vector<double> vdIMUInteg_ms;   // IMU预积分耗时
+    vector<double> vdPosePred_ms;   // 位姿估计耗时
+    vector<double> vdLMTrack_ms;    // 局部地图跟踪耗时
+    vector<double> vdNewKF_ms;      // 插入关键帧耗时
     vector<double> vdTrackTotal_ms;
 #endif
 
@@ -232,9 +243,11 @@ protected:
     bool mbMapUpdated;
 
     // Imu preintegration from last frame
+    // 上一帧的IMU预积分
     IMU::Preintegrated *mpImuPreintegratedFromLastKF;
 
     // Queue of IMU measurements between frames
+    // 两帧间的IMU测量数据
     std::list<IMU::Point> mlQueueImuData;
 
     // Vector of IMU measurements from previous to current frame (to be filled by PreintegrateIMU)
@@ -257,11 +270,11 @@ protected:
     LocalMapping* mpLocalMapper;
     LoopClosing* mpLoopClosing;
 
-    //ORB
+    //ORB 特征提取器
     ORBextractor* mpORBextractorLeft, *mpORBextractorRight;
     ORBextractor* mpIniORBextractor;
 
-    //BoW
+    //BoW 词袋
     ORBVocabulary* mpORBVocabulary;
     KeyFrameDatabase* mpKeyFrameDB;
 
@@ -269,10 +282,10 @@ protected:
     bool mbReadyToInitializate;
     bool mbSetInit;
 
-    //Local Map
-    KeyFrame* mpReferenceKF;
-    std::vector<KeyFrame*> mvpLocalKeyFrames;
-    std::vector<MapPoint*> mvpLocalMapPoints;
+    // Local Map
+    KeyFrame* mpReferenceKF;    // 参考关键帧
+    std::vector<KeyFrame*> mvpLocalKeyFrames;   // 局部参考关键帧
+    std::vector<MapPoint*> mvpLocalMapPoints;   // 局部地图点
     
     // System
     System* mpSystem;
@@ -287,9 +300,9 @@ protected:
     Atlas* mpAtlas;
 
     //Calibration matrix
-    cv::Mat mK;
-    Eigen::Matrix3f mK_;
-    cv::Mat mDistCoef;
+    cv::Mat mK;         // 内参矩阵
+    Eigen::Matrix3f mK_; // 内参矩阵
+    cv::Mat mDistCoef;  // 四个畸变参数 k1, k2, p1, p2
     float mbf;
     float mImageScale;
 
@@ -313,7 +326,7 @@ protected:
     float mDepthMapFactor;
 
     //Current matches in frame
-    int mnMatchesInliers;
+    int mnMatchesInliers;   // 当前帧中 与地图点匹配的特征点的数目
 
     //Last Frame, KeyFrame and Relocalisation Info
     KeyFrame* mpLastKeyFrame;

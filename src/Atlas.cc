@@ -30,14 +30,16 @@ Atlas::Atlas(){
     mpCurrentMap = static_cast<Map*>(NULL);
 }
 
+// 构造函数：初始化时创建第一幅地图，并将参数赋值给地图的第一个关键帧ID
 Atlas::Atlas(int initKFid): mnLastInitKFidMap(initKFid), mHasViewer(false)
 {
     mpCurrentMap = static_cast<Map*>(NULL);
     CreateNewMap();
 }
-
+// 析构函数
 Atlas::~Atlas()
 {
+    // 创建一个迭代器，mspMaps 存档 当前地图信息。        // 如果 当前活跃地图 有效，则存储 当前地图 为 不活跃地图
     for(std::set<Map*>::iterator it = mspMaps.begin(), end = mspMaps.end(); it != end;)
     {
         Map* pMi = *it;
@@ -55,14 +57,20 @@ Atlas::~Atlas()
     }
 }
 
+// 创建新地图：如果当前活跃地图有效，先将前地图设置为非活跃地图，然后新建一个地图；否则直接新建一个地图
 void Atlas::CreateNewMap()
 {
-    unique_lock<mutex> lock(mMutexAtlas);
+    unique_lock<mutex> lock(mMutexAtlas);   // 锁住地图集
     cout << "Creation of new map with id: " << Map::nNextId << endl;
-    if(mpCurrentMap){
-        if(!mspMaps.empty() && mnLastInitKFidMap < mpCurrentMap->GetMaxKFid())
-            mnLastInitKFidMap = mpCurrentMap->GetMaxKFid()+1; //The init KF is the next of current maximum
 
+    // 如果当前活跃地图有效，先存储当前地图为不活跃地图
+    if(mpCurrentMap){
+        // 如果 地图集非空 且 下一地图初始关键帧的id < 当前活跃地图最大 关键帧id
+        if(!mspMaps.empty() && mnLastInitKFidMap < mpCurrentMap->GetMaxKFid())
+            mnLastInitKFidMap = mpCurrentMap->GetMaxKFid()+1;   //The init KF is the next of current maximum
+                                                                // mnLastInitKFidMap：下一地图初始关键帧的id = 当前活跃地图最大 关键帧id + 1
+        
+        // 将当前地图储存起来，即将 mIsInUse 置为false
         mpCurrentMap->SetStoredMap();
         cout << "Stored map with ID: " << mpCurrentMap->GetId() << endl;
 
@@ -71,9 +79,9 @@ void Atlas::CreateNewMap()
     }
     cout << "Creation of new map with last KF id: " << mnLastInitKFidMap << endl;
 
-    mpCurrentMap = new Map(mnLastInitKFidMap);
-    mpCurrentMap->SetCurrentMap();
-    mspMaps.insert(mpCurrentMap);
+    mpCurrentMap = new Map(mnLastInitKFidMap);  // 新建一个地图
+    mpCurrentMap->SetCurrentMap();  // 设置为活跃地图
+    mspMaps.insert(mpCurrentMap);   // 插入到地图集中
 }
 
 void Atlas::ChangeMap(Map* pMap)

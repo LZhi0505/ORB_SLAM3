@@ -209,8 +209,10 @@ int main(int argc, char **argv)
 
     if (bFileName)
     {
-        const string kf_file =  "kf_" + string(argv[argc-1]) + ".txt";
-        const string f_file =  "f_" + string(argv[argc-1]) + ".txt";
+        const string kf_file =  "kf_stereo_" + string(argv[argc-1]) + ".txt";
+        const string f_file =  "f_stereo_" + string(argv[argc-1]) + ".txt";
+        const string save_path = "./Trajectories/";
+
         SLAM.SaveTrajectoryEuRoC(f_file);
         SLAM.SaveKeyFrameTrajectoryEuRoC(kf_file);
     }
