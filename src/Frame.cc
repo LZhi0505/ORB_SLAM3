@@ -616,7 +616,7 @@ void Frame::SetImuPoseVelocity(const Eigen::Matrix3f &Rwb, const Eigen::Vector3f
 }
 
 /**
- * mTcw -> 相机位姿：世界坐标系到相机坐标坐标系的变换矩阵,是我们常规理解中的相机位姿
+ * mTcw -> 相机位姿：世界坐标系到相机坐标坐标系的变换矩阵, 是我们常规理解中的相机位姿
  * 根据 mTcw可以计算出 mOw(当前相机光心在世界坐标系下坐标)，
  *                  mRcw(世界坐标系到相机坐标系的旋转矩阵)，
  *                  mtcw(世界坐标系到相机坐标系的平移向量)，
@@ -1336,7 +1336,7 @@ void Frame::ComputeStereoMatches()
             // 视差 (左目特征点横坐标 - 右目匹配特征点亚像素横坐标)
             float disparity = (uL - bestuR);
 
-            // 视差满足需 [0, fx)
+            // 视差满足需 [0, fx) fx单位为像素
             if(disparity >= minD && disparity < maxD)
             {
                 // 如果存在负视差，则约束为0.01

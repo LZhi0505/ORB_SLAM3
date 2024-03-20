@@ -43,6 +43,10 @@ namespace IMU
 const float GRAVITY_VALUE = 9.81;
 
 // IMU measurement (gyro, accelerometer and timestamp)
+/**
+ * 指代一个IMU测量数据：加速度、角速度及所对应的时间戳
+ * 其构造函数有两个形式，其都是构造一个imu的测量数据的
+ */
 class Point
 {
 public:
@@ -52,19 +56,21 @@ public:
     Point(const cv::Point3f Acc, const cv::Point3f Gyro, const double &timestamp):
         a(Acc.x,Acc.y,Acc.z), w(Gyro.x,Gyro.y,Gyro.z), t(timestamp){}
 public:
-    Eigen::Vector3f a;
-    Eigen::Vector3f w;
-    double t;
+    Eigen::Vector3f a;  // 加速度
+    Eigen::Vector3f w;  // 角速度
+    double t;   // 时间戳
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 };
 
 /**
- * IMU 零偏 (陀螺仪和加速度计)
+ * IMU 零偏类 (保存加速度和角速度的零偏)
+ * 空构造时传入的都是0，否则传来的是加速度的零偏和角速度的零偏
  */
 class Bias
 {
     friend class boost::serialization::access;
     template<class Archive>
+    // 保存地图的时候序列化反序列化的时候用到的。零偏里面也是保存六个数，关于加速度的零偏和关于角速度的零偏
     void serialize(Archive & ar, const unsigned int version)
     {
         ar & bax;
@@ -81,6 +87,8 @@ public:
     Bias(const float &b_acc_x, const float &b_acc_y, const float &b_acc_z,
             const float &b_ang_vel_x, const float &b_ang_vel_y, const float &b_ang_vel_z):
             bax(b_acc_x), bay(b_acc_y), baz(b_acc_z), bwx(b_ang_vel_x), bwy(b_ang_vel_y), bwz(b_ang_vel_z){}
+
+    // 赋值新的零偏 (六个数据)
     void CopyFrom(Bias &b);
     friend std::ostream& operator<< (std::ostream &out, const Bias &b);
 
@@ -91,7 +99,7 @@ public:
 };
 
 /**
- * IMU内参 (Tbc, Tcb, noise)
+ * 保存标定好的 IMU外参 (包括Tbc, Tcb, noise)
  */
 class Calib
 {
@@ -123,13 +131,17 @@ public:
 
 public:
     // Sophus/Eigen implementation
-    Sophus::SE3<float> mTcb;
-    Sophus::SE3<float> mTbc;
-    Eigen::DiagonalMatrix<float,6> Cov, CovWalk;
+    Sophus::SE3<float> mTcb;    // imu到相机的变换矩阵
+    Sophus::SE3<float> mTbc;    // 相机到imu的变换矩阵
+    Eigen::DiagonalMatrix<float,6> Cov, CovWalk;    // 误差的协方差、随机游走(零偏)的协方差矩阵    （协方差矩阵是用来算信息矩阵的!!!)
     bool mbIsSet;
 };
 
 // Integration of 1 gyro measurement
+/**
+ * 陀螺仪测量的积分类 (包括旋转增量、右雅可比、积分时间)
+ * 角度的预积分类：单纯两个IMU数据之间的积分，不存在累计关系
+ */
 class IntegratedRotation
 {
 public:
@@ -137,15 +149,15 @@ public:
     IntegratedRotation(const Eigen::Vector3f &angVel, const Bias &imuBias, const float &time);
 
 public:
-    float deltaT; //integration time
-    Eigen::Matrix3f deltaR;
-    Eigen::Matrix3f rightJ; // right jacobian
+    float deltaT;   // integration time, 一次积分中的间隔
+    Eigen::Matrix3f deltaR; // Exp 里面中的值
+    Eigen::Matrix3f rightJ; // right jacobian, 右雅可比
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 };
 
 // Preintegration of Imu Measurements
 /**
- * IMU预积分
+ * 预积分类
  */
 class Preintegrated
 {
@@ -215,35 +227,39 @@ public:
     }
 
 public:
-    float dT;
-    Eigen::Matrix<float,15,15> C;
-    Eigen::Matrix<float,15,15> Info;
-    Eigen::DiagonalMatrix<float,6> Nga, NgaWalk;
+    float dT;   // 这一段的总时间
+    Eigen::Matrix<float,15,15> C;   // 协方差矩阵
+    Eigen::Matrix<float,15,15> Info;    // 信息矩阵
+    Eigen::DiagonalMatrix<float,6> Nga, NgaWalk;    // 误差、随机游走
 
     // Values for the original bias (when integration was computed)
-    // 初始零偏
+    // 初始零偏 (初始化的时候给的零偏)
     Bias b;
-    // 旋转预积分
-    Eigen::Matrix3f dR;
-    // 速度、位置预积分
-    Eigen::Vector3f dV, dP;
-    //
+
+    // 预积分的值
+    Eigen::Matrix3f dR; // 旋转预积分
+    Eigen::Vector3f dV, dP; // 速度、位置预积分
+
+    // 旋转对陀螺仪零偏的雅可比、速度对陀螺仪零偏的雅可比、速度对加速度计零偏的雅可比、位置对陀螺仪零偏的雅可比、位置对加速度计零偏的雅可比
     Eigen::Matrix3f JRg, JVg, JVa, JPg, JPa;
+    // 加速度的平均值、角速度的平均值
     Eigen::Vector3f avgA, avgW;
 
 
 private:
     // Updated bias
-    // 更新后的零偏
+    // 更新后的零偏 (优化的时候会更新)
     Bias bu;
     // Dif between original and updated bias
     // This is used to compute the updated values of the preintegration
     // 零偏的 增量
     Eigen::Matrix<float,6,1> db;
 
+    // 预积分类Preintegrated的一个结构体, 其实就是保存了一段时间的实测数据，加速度角速度和时间间隔
     struct integrable
     {
         template<class Archive>
+        // 没用
         void serialize(Archive & ar, const unsigned int version)
         {
             ar & boost::serialization::make_array(a.data(), a.size());
@@ -258,8 +274,10 @@ private:
         float t;
     };
 
+    // 这段时间内的所有imu数据
     std::vector<integrable> mvMeasurements;
 
+    // 锁
     std::mutex mMutex;
 };
 

@@ -229,7 +229,7 @@ protected:
      cv::Mat mDescriptor;       // 地图点的描述子，是其在所有观测关键帧中描述子的中位数(准确地说,该描述子与其他所有描述子的中值距离最小)
 
      // Reference KeyFrame
-     KeyFrame* mpRefKF;     // 当前地图点的参考关键帧,生成该地图点的关键帧
+     KeyFrame* mpRefKF;     // 当前地图点的参考关键帧, 生成该地图点的关键帧
      long unsigned int mBackupRefKFId;
 
      // Tracking counters

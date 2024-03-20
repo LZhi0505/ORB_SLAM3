@@ -155,7 +155,8 @@ void LocalMapping::Run()
             int num_MPs_BA = 0;
             int num_edges_BA = 0;
 
-            // Step 6：已经处理完队列中的最后的一个关键帧 且 闭环检测没有请求停止LocalMapping，则进行局部BA
+            // Step 6：已经处理完队列中的最后的一个关键帧 且 闭环检测没有请求停止LocalMapping
+            // 若当前地图中关键帧数目 > 2，则进行局部BA；再判定是否进行IMU初始化
             if(!CheckNewKeyFrames() && !stopRequested())
             {
                 // 当前地图中关键帧数目 > 2，才进行BA优化
@@ -164,11 +165,11 @@ void LocalMapping::Run()
                     // Step 6.1：IMU模式 且 IMU已完成第一阶段初始化，进行局部地图+IMU BA
                     if(mbInertial && mpCurrentKeyFrame->GetMap()->isImuInitialized())
                     {
-                        // 计算 上一关键帧到当前关键帧相机光心的距离 + 上上关键帧到上一关键帧相机光心的距离
+                        // 计算 上一关键帧 到 当前关键帧相机光心的距离 + 上上关键帧 到 上一关键帧 相机光心的距离
                         float dist = (mpCurrentKeyFrame->mPrevKF->GetCameraCenter() - mpCurrentKeyFrame->GetCameraCenter()).norm() +
                                 (mpCurrentKeyFrame->mPrevKF->mPrevKF->GetCameraCenter() - mpCurrentKeyFrame->mPrevKF->GetCameraCenter()).norm();
 
-                        // 即上上一KF到当前KF的距离>5cm，则累计 上一KF到当前KF的时间差
+                        // 若上述光心距离>5cm，则累加 上一关键帧到当前关键帧的 时间差
                         if(dist > 0.05)
                             mTinit += mpCurrentKeyFrame->mTimeStamp - mpCurrentKeyFrame->mPrevKF->mTimeStamp;
 
@@ -204,7 +205,7 @@ void LocalMapping::Run()
 
                         b_doneLBA = true;
                     }
-                    // Step 6.2：非IMU模式 或 IMU 未完成第一阶段初始化，进行纯视觉局部地图 BA
+                    // Step 6.2：非IMU模式 或 IMU未完成第一阶段初始化，进行纯视觉局部地图 BA
                     else {
                         // 局部地图 BA，不包括IMU数据。优化局部关键帧(一级共视关键帧)位姿、局部地图点。
                         // 注意这里的第二个参数是按地址传递的,当这里的 mbAbortBA 状态发生变化时，能够及时执行/停止BA
@@ -233,7 +234,7 @@ void LocalMapping::Run()
 
 #endif
 
-                // Step 7：进行IMU第一阶段初始化（2s内）。目的：快速初始化 IMU，尽快用IMU来跟踪。成功的标志 mbImuInitialized
+                //! Step 7：进行IMU第一阶段初始化（2s内）。目的：快速初始化 IMU，尽快用IMU来跟踪。成功的标志 mbImuInitialized
                 // IMU模式 且 IMU未完成第一阶段初始化
                 if(!mpCurrentKeyFrame->GetMap()->isImuInitialized() && mbInertial)
                 {
@@ -255,14 +256,13 @@ void LocalMapping::Run()
                 timeKFCulling_ms = std::chrono::duration_cast<std::chrono::duration<double,std::milli> >(time_EndKFCulling - time_EndLBA).count();
                 vdKFCulling_ms.push_back(timeKFCulling_ms);
 #endif
-                // Step 9: IMU模式 且 如果距离IMU第一阶段初始化成功累计时间差 < 50s，进行IMU第二、三阶段初始化
-                if ((mTinit < 50.0f) && mbInertial)
-                {
+                // Step 9: IMU模式 且 累加时间 < 50s，进行IMU第二、三阶段初始化
+                if ((mTinit < 50.0f) && mbInertial) {
                     // IMU已完成第一阶段初始化 且 跟踪正常
                     if(mpCurrentKeyFrame->GetMap()->isImuInitialized() && mpTracker->mState==Tracking::OK) // Enter here everytime local-mapping is called
                     {
-                        // Step 9.1 进行IMU第二阶段初始化。目的：快速修正IMU，在短时间内使得IMU参数相对靠谱。成功标志为 mbIMU_BA1
-                        // 累计时间差 > 5s 且 IMU未完成第二阶段初始化
+                        //! Step 9.1 进行IMU第二阶段初始化。目的：快速修正IMU，在短时间内使得IMU参数相对靠谱。成功标志为 mbIMU_BA1
+                        // 累加时间 > 5s 且 IMU未完成第二阶段初始化
                         if(!mpCurrentKeyFrame->GetMap()->GetIniertialBA1()) {
                             if (mTinit > 5.0f) {
                                 cout << "start VIBA 1" << endl;
@@ -274,8 +274,8 @@ void LocalMapping::Run()
                                 cout << "end VIBA 1" << endl;
                             }
                         }
-                        // Step 9.2 进行IMU第三阶段初始化。目的：再次优化IMU，保证IMU参数的高精度。成功标志为 mbIMU_BA2
-                        // 累计时间 > 15s 且 IMU未完成第三阶段初始化
+                        //! Step 9.2 进行IMU第三阶段初始化。目的：再次优化IMU，保证IMU参数的高精度。成功标志为 mbIMU_BA2
+                        // 累加时间 > 15s 且 IMU未完成第三阶段初始化
                         else if(!mpCurrentKeyFrame->GetMap()->GetIniertialBA2()) {
                             if (mTinit > 15.0f) {
                                 cout << "start VIBA 2" << endl;
@@ -288,7 +288,7 @@ void LocalMapping::Run()
                             }
                         }
 
-                        // Step 9.3 进行IMU第四阶段初始化（仅单目）
+                        //! Step 9.3 进行IMU第四阶段初始化（仅单目）
                         // 单目+IMU模式，且关键帧个数 <= 200，且从25-75s内，每10s单独进行一次 尺度 与 重力方向 的优化
                         if ( ((mpAtlas->KeyFramesInMap()) <= 200) && ((mTinit>25.0f && mTinit<25.5f)||(mTinit>35.0f && mTinit<35.5f)||(mTinit>45.0f && mTinit<45.5f)||(mTinit>55.0f && mTinit<55.5f)||(mTinit>65.0f && mTinit<65.5f)||(mTinit>75.0f && mTinit<75.5f)) ) {
                             if (mbMonocular)
@@ -297,7 +297,7 @@ void LocalMapping::Run()
                         }
                     }
                 }
-            }
+            }// 已经处理完队列中的最后的一个关键帧 且 闭环检测没有请求停止LocalMapping 条件结束
 
 #ifdef REGISTER_TIMES
             vdLBASync_ms.push_back(timeKFCulling_ms);
@@ -365,7 +365,7 @@ bool LocalMapping::CheckNewKeyFrames()
 }
 
 /**
- * @brief 处理列表中的关键帧，包括计算BoW、更新观测、描述子、共视图，插入到地图等
+ * @brief 处理列表中的关键帧，包括计算BoW、更新观测、描述子、共视图，插入到地图(mspKeyFrames中)等
  */
 void LocalMapping::ProcessNewKeyFrame()
 {
@@ -373,9 +373,9 @@ void LocalMapping::ProcessNewKeyFrame()
     // 该关键帧队列是Tracking线程向LocalMapping中插入的关键帧组成
     {
         unique_lock<mutex> lock(mMutexNewKFs);
-        // 取出列表中最前面的关键帧，作为当前要处理的关键帧
+        // 取出列表中最前面的关键帧，作为要处理的 当前关键帧
         mpCurrentKeyFrame = mlNewKeyFrames.front();
-        // 取出最前面的关键帧后，在原来的列表里删掉该关键帧
+        // 在原来的列表里删掉它
         mlNewKeyFrames.pop_front();
     }
 
@@ -421,7 +421,7 @@ void LocalMapping::ProcessNewKeyFrame()
     mpCurrentKeyFrame->UpdateConnections();
 
     // Insert Keyframe in Map
-    // Step 5：将该关键帧插入到地图中
+    // Step 5：将该关键帧插入到地图中，即mspKeyFrames中
     mpAtlas->AddKeyFrame(mpCurrentKeyFrame);
 }
 
@@ -1200,13 +1200,11 @@ void LocalMapping::KeyFrameCulling()
     // Compoute last KF from optimizable window:
     unsigned int last_ID;   // 当前关键帧前面第21关键帧的id，不足21个时为最前面关键帧的id
     // IMU模式
-    if (mbInertial)
-    {
+    if (mbInertial) {
         int count = 0;
         KeyFrame* aux_KF = mpCurrentKeyFrame;
         // 找到当前关键帧前面的第21个关键帧的id。如果不够21，则为最前面关键帧的id
-        while(count < Nd && aux_KF->mPrevKF)
-        {
+        while(count < Nd && aux_KF->mPrevKF) {
             aux_KF = aux_KF->mPrevKF;
             count++;
         }
@@ -1214,15 +1212,14 @@ void LocalMapping::KeyFrameCulling()
     }
 
     // 遍历当前关键帧的 所有共视关键帧
-    for(vector<KeyFrame*>::iterator vit = vpLocalKeyFrames.begin(), vend = vpLocalKeyFrames.end(); vit != vend; vit++)
-    {
+    for(vector<KeyFrame*>::iterator vit = vpLocalKeyFrames.begin(), vend = vpLocalKeyFrames.end(); vit != vend; vit++) {
         count++;    // 遍历的共视关键帧个数+1
         KeyFrame* pKF = *vit;   // 该共视关键帧
 
         // 如果该共视关键帧是地图中的第1个关键帧 或 被标记为坏帧，则跳过
         if((pKF->mnId == pKF->GetMap()->GetInitKFid()) || pKF->isBad())
             continue;
-        // Step 2：获取该共视关键帧的地图点
+        // Step 2：获取该共视关键帧的 地图点
         const vector<MapPoint*> vpMapPoints = pKF->GetMapPointMatches();
 
         // 记录某个点被观测次数，后面并未使用
@@ -1233,18 +1230,16 @@ void LocalMapping::KeyFrameCulling()
         int nMPs = 0;   // 有效共视关键帧的地图点个数
 
         // Step 3：遍历该共视关键帧的 所有地图点，判断是否90%以上的地图点能被其它至少3个关键帧（同样或者更低层级）观测到
-        for(size_t i = 0, iend = vpMapPoints.size(); i < iend; i++)
-        {
+        for(size_t i = 0, iend = vpMapPoints.size(); i < iend; i++) {
+
             MapPoint* pMP = vpMapPoints[i]; // 该共视关键帧的一个地图点
+
             // 该地图点存在
-            if(pMP)
-            {
+            if(pMP) {
                 // 该地图点不是坏点
-                if(!pMP->isBad())
-                {
+                if(!pMP->isBad()) {
                     // 对于双目，仅考虑近处（不超过基线的40倍 euroc为60倍，realsense为40倍 ）的地图点 0 < depth < 40倍基线
-                    if(!mbMonocular)
-                    {
+                    if(!mbMonocular) {
                         if(pKF->mvDepth[i] > pKF->mThDepth || pKF->mvDepth[i] < 0)
                             continue;
                     }
@@ -1252,34 +1247,35 @@ void LocalMapping::KeyFrameCulling()
                     nMPs++; // 有效共视关键帧的地图点个数+1
 
                     // pMP->Observations() 是观测到该地图点的相机总数目（单目+1，双目+2）> 3, 是冗余点
-                    if(pMP->Observations() > thObs)
-                    {
+                    if(pMP->Observations() > thObs) {
                         // 该地图点 在该共视关键帧中对应特征点 的层级
                         const int &scaleLevel = (pKF -> NLeft == -1) ? pKF->mvKeysUn[i].octave
                                                                      : (i < pKF -> NLeft) ? pKF -> mvKeys[i].octave
                                                                                           : pKF -> mvKeysRight[i].octave;
-                        const map<KeyFrame*, tuple<int,int>> observations = pMP->GetObservations(); // 观测到该地图点的 关键帧 和 该地图点在该关键帧中的 索引
+                        // 观测到该地图点的 关键帧 和 该地图点在该关键帧中的 索引
+                        const map<KeyFrame*, tuple<int,int>> observations = pMP->GetObservations();
                         int nObs = 0;   // 有效观测到该地图点的关键帧个数
 
                         // 遍历观测到该地图点的 所有关键帧
-                        for(map<KeyFrame*, tuple<int,int>>::const_iterator mit = observations.begin(), mend = observations.end(); mit != mend; mit++)
-                        {
-                            KeyFrame* pKFi = mit->first;    // 取出观测到该地图点的关键帧
+                        for(map<KeyFrame*, tuple<int,int>>::const_iterator mit = observations.begin(), mend = observations.end(); mit != mend; mit++) {
+
+                            KeyFrame* pKFi = mit->first;    // 观测到该地图点的关键帧
                             // 如果是当前共视关键帧，则跳过
                             if(pKFi == pKF)
                                 continue;
                             tuple<int,int> indexes = mit->second;   // 该地图点在其观测关键帧中的 索引。单目或立体匹配双目，则为<idx, -1>
                             int leftIndex = get<0>(indexes), rightIndex = get<1>(indexes);
                             int scaleLeveli = -1;
-                            // 单目或立体匹配双目
+
+                            // 单目 或 针孔相机双目
                             if(pKFi -> NLeft == -1)
                                 scaleLeveli = pKFi->mvKeysUn[leftIndex].octave; // 该地图点在其观测关键帧中对应特征点 的层级
-                            // 非立体匹配双目
+                            // KB鱼眼相机双目
                             else {
-                                if (leftIndex != -1) {
+                                if (leftIndex != -1) { // 在左目
                                     scaleLeveli = pKFi->mvKeys[leftIndex].octave;
                                 }
-                                if (rightIndex != -1) {
+                                if (rightIndex != -1) { // 在右目
                                     int rightLevel = pKFi->mvKeysRight[rightIndex - pKFi->NLeft].octave;
                                     scaleLeveli = (scaleLeveli == -1 || scaleLeveli > rightLevel) ? rightLevel
                                                                                                   : scaleLeveli;
@@ -1491,39 +1487,34 @@ bool LocalMapping::isFinished()
 
 /**
  * @brief IMU 的初始化：获得重力方向和IMU零偏的初始值。有了正确的重力方向才能消除IMU预积分中加速度计关于重力的影响，得到的IMU预积分数据才能保证准确
- * @param priorG 陀螺仪偏置的信息矩阵系数，主动设置时一般 bInit 为 true，也就是只优化最后一帧的偏置，这个数会作为计算信息矩阵时使用
- * @param priorA 加速度计偏置的信息矩阵系数
- * @param bFIBA 是否进行 视觉+IMU全局BA优化 (目前都为true)
+ * @param priorG    陀螺仪零偏的信息矩阵系数 (初始化第一阶段为1e2, 第二阶段为1.f, 第三阶段为0.f)。有值时，即IMU初始化第一、二阶段，Optimizer::FullInertialBA的 bInit为 true，只优化最后一个关键帧的零偏，这个数会作为计算信息矩阵时使用
+ * @param priorA    加速度计零偏的信息矩阵系数 (初始化第一阶段为1e5, 第二阶段为1e5, 第三阶段为0.f)
+ * @param bFIBA     是否进行 视觉+IMU全局BA优化 (目前都为true)
  */
 void LocalMapping::InitializeIMU(float priorG, float priorA, bool bFIBA)
 {
-    // 将所有关键帧放入列表及向量里，且查看是否满足初始化条件
-
     // Step 1: 下面是各种不满足IMU初始化的条件，直接返回
     // 如有置位请求，直接返回
     if (mbResetRequested)
         return;
 
-    float minTime;  // 最后一个关键帧 与 第一个关键帧的时间戳间隔需 >= 该最小时间
-    int nMinKF;     // 地图中至少存在的关键帧数目
-    // 从时间及帧数上限制初始化，不满足下面条件的不进行初始化
-    // 单目
+    float minTime;  // 最后一个关键帧 与 第一个关键帧的时间戳间隔需 >= 该最小时间 (单目 2s，双目、RGBD 1s)
+    int nMinKF;     // 地图中至少存在的关键帧数目 (单、双目 10个)
+
     if (mbMonocular) {
         minTime = 2.0;
         nMinKF = 10;
-    }
-    // 双目、RGBD
-    else {
+    } else {
         minTime = 1.0;
         nMinKF = 10;
     }
 
-    // 当前地图关键帧个数需 >= 10，否则不进行初始化
+    // 当前地图关键帧个数需 >= 10 (2s)，否则直接返回
     if(mpAtlas->KeyFramesInMap() < nMinKF)
         return;
 
-    // 按照时间顺序存储 地图中的所有关键帧（包括当前关键帧）
-    list<KeyFrame*> lpKF;   // 老的在前
+    // 按照时间顺序存储 地图中的所有关键帧 (老的在前，最先是第一个没有上一关键帧的关键帧(初始关键帧)，最后是当前关键帧)
+    list<KeyFrame*> lpKF;
     KeyFrame* pKF = mpCurrentKeyFrame;
     while(pKF->mPrevKF)
     {
@@ -1532,37 +1523,40 @@ void LocalMapping::InitializeIMU(float priorG, float priorA, bool bFIBA)
     }
     lpKF.push_front(pKF);
 
-    // 同样内容再构建一个和lpKF一样的容器vpKF
+    // 拷贝构造一个同样的关键帧vector vpKF
     vector<KeyFrame*> vpKF(lpKF.begin(),lpKF.end());
-    if(vpKF.size() < nMinKF)
+    if(vpKF.size() < nMinKF)    // 其个数<10，直接返回
         return;
 
-    // 头尾关键帧时间戳之差需 >= minTime (单目2s, 双目、RGBD 1s)
+    // 第一个关键帧的时间戳
     mFirstTs = vpKF.front()->mTimeStamp;
+
+    // 最后一个与第一个关键帧时间戳之差需 >= minTime (单目2s, 双目、RGBD 1s)，否则直接返回
     if(mpCurrentKeyFrame->mTimeStamp - mFirstTs < minTime)
         return;
 
-    // Step 2: 为true，表示正在进行IMU初始化，该标志用于Tracking线程中判断是否添加关键帧
+    // Step 2: 为true，表示正在进行IMU初始化。Tracking线程是否插入关键帧中，若LocalMapping空闲或正在进行IMU初始化，则可以添加关键帧
     bInitializing = true;
 
-    // 将缓存队列中还未处理的 新关键帧也放进来，防止堆积且保证数据量充足
+    // 将缓存队列中还未处理的 新关键帧 也加入到队列中，防止堆积且保证数据量充足
     while(CheckNewKeyFrames())
     {
-        ProcessNewKeyFrame();   // 处理该容器的关键帧，包括计算BoW、更新观测、描述子、共视图，插入到地图等
-        vpKF.push_back(mpCurrentKeyFrame);
-        lpKF.push_back(mpCurrentKeyFrame);
+        ProcessNewKeyFrame();   // 处理该容器的关键帧们 (更新为当前关键帧)，包括计算BoW、更新观测、描述子、共视图，插入到地图(mspKeyFrames中)等
+        vpKF.push_back(mpCurrentKeyFrame);      // 加入
+        lpKF.push_back(mpCurrentKeyFrame);  // 加入
     }
 
-    // Step 3: 正式开始IMU初始化
     const int N = vpKF.size();  // 目前所有关键帧的个数
+
     // 零偏初始值为0
     IMU::Bias b(0,0,0,0,0,0);
 
     // Compute and KF velocities mRwg estimation
-    // IMU未进行第一阶段初始化，即IMU第一阶段初始化时，主要为了计算 重力坐标系到世界坐标系的 旋转矩阵 的初值mRwg
+    // Step 3: 获取 重力坐标系到世界坐标系的 旋转矩阵 的初值mRwg
+    // Step 3.1: IMU第一阶段初始化时，通过前面累积的关键帧的IMU预积分数据，求得重力在世界坐标中的方向，从而求得 重力坐标系到世界坐标系的旋转矩阵 的初值mRwg
     if (!mpCurrentKeyFrame->GetMap()->isImuInitialized())
     {
-        Eigen::Matrix3f Rwg;    // 世界坐标系(第一帧相机) 到 重力方向 的旋转矩阵
+        Eigen::Matrix3f Rwg;    // 世界坐标系(第一关键帧相机) 到 重力方向 的旋转矩阵
         Eigen::Vector3f dirG;   // 重力方向的估计值 （在经过Rwg变换前的坐标系下）
         dirG.setZero();
 
@@ -1581,16 +1575,17 @@ void LocalMapping::InitializeIMU(float priorG, float priorA, bool bFIBA)
             have_imu_num++; // 因为只有一帧无mPrevKF，因此其最终值为N-1，至少为9
 
             // 初始化时关于速度的预积分定义 Ri.t() * (s*Vj - s*Vi - Rwg*g*tij) Note: 核心中的核心
-            // dirG: 从参考关键帧到vpKF中最后插入的关键帧之间的速度增量（从IMU坐标系转换到世界坐标系下），其中ΔV_ij = Riw (V_j − V_i − g ∗ Δt)。即速度变化的估计值，这个向量表示在世界坐标系下的速度变化方向
-            // dirG 相当于 把地图中所有关键帧的ΔV_ij转换到世界坐标系下，然后取反累加，即dirG = V(参考关键帧) - V(地图中最新的关键帧) + g∗Δt，得到初步估计的重力方向
+            // dirG: 从初始关键帧 到vpKF中最后插入的关键帧 之间的 速度增量（从IMU坐标系转换到世界坐标系下），其中ΔV_ij = Riw (V_j − V_i − g ∗ Δt)。即速度变化的估计值，这个向量表示在世界坐标系下的速度变化方向
+            // dirG 相当于 把地图中所有关键帧的ΔV_ij转换到世界坐标系下，然后取反累加，即dirG = V(初始关键帧) - V(地图中最新的关键帧) + g∗Δt，得到初步估计的重力方向
             // 假设速度变化很小，故dirG = g∗Δt，这只是粗略的估计了一个初值，因为后面还会优化，这个值越精确越有助于后面的优化
             dirG -= (*itKF)->mPrevKF->GetImuRotation() * (*itKF)->mpImuPreintegrated->GetUpdatedDeltaVelocity();
-            // 求取实际的速度，位移 / 时间
-            // _vel：当前关键帧的参考关键帧 到 当前关键帧的平均速度
+
+            // 求实际的速度，位移 / 时间
+            // _vel：当前关键帧的上一关键帧 到 当前关键帧的平均速度
             Eigen::Vector3f _vel = ((*itKF)->GetImuPosition() - (*itKF)->mPrevKF->GetImuPosition()) / (*itKF)->mpImuPreintegrated->dT;
-            (*itKF)->SetVelocity(_vel);             // 设置优化前速度初值
-            (*itKF)->mPrevKF->SetVelocity(_vel);    // 设置优化前速度初值
-        }
+            (*itKF)->SetVelocity(_vel);             // 给每个关键帧 设置 优化前速度初值
+            (*itKF)->mPrevKF->SetVelocity(_vel);    // 给每个关键帧的上一关键帧 设置 优化前速度初值
+        }// 每个关键帧遍历完毕
         // ----detailed代码中加入的
         if (have_imu_num < 6)
         {
@@ -1621,7 +1616,7 @@ void LocalMapping::InitializeIMU(float priorG, float priorA, bool bFIBA)
         Rwg = Sophus::SO3f::exp(vzg).matrix();  // exp: 指数映射，旋转向量 -> 旋转矩阵
         mRwg = Rwg.cast<double>();
 
-        // 更新 mTinit = 当前关键帧时间戳（mlNewKeyFrames中最新的关键帧） - 初始化参考关键帧时间戳（mFirstTs）；
+        // 更新 mTinit = IMU第一阶段初始化时，当前关键帧时间戳 - 初始关键帧时间戳（mFirstTs）；
         mTinit = mpCurrentKeyFrame->mTimeStamp - mFirstTs;
     }
     // IMU第二、三阶段初始化时，mRwg初值设为单位矩阵，mbg、mba设为当前关键帧的零偏
@@ -1632,7 +1627,7 @@ void LocalMapping::InitializeIMU(float priorG, float priorA, bool bFIBA)
         mba = mpCurrentKeyFrame->GetAccBias().cast<double>();
     }
 
-    // 将尺度mScale设为1，然后进行优化
+    // Step 4: 将尺度mScale设为1，然后进行优化
     mScale = 1.0;
 
     // 暂时没发现在别的地方出现过
@@ -1640,7 +1635,7 @@ void LocalMapping::InitializeIMU(float priorG, float priorA, bool bFIBA)
 
     std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
 
-    //! 纯IMU优化：优化 重力方向、尺度、地图中所有关键帧的速度和零偏 (零偏先验为0，双目模式不优化尺度)
+    //! Step 5: 纯IMU优化：优化 重力方向、尺度、地图中所有关键帧的速度和零偏 (零偏先验为0，双目模式不优化尺度)
     Optimizer::InertialOptimization(mpAtlas->GetCurrentMap(), mRwg, mScale, mbg, mba, mbMonocular, infoInertial, false, false, priorG, priorA);
 
     std::chrono::steady_clock::time_point t1 = std::chrono::steady_clock::now();
@@ -1649,59 +1644,64 @@ void LocalMapping::InitializeIMU(float priorG, float priorA, bool bFIBA)
     if (mScale < 1e-1)
     {
         cout << "scale too small" << endl;
-        bInitializing = false;
+        bInitializing = false;  // 该阶段的初始化结束
         return;
     }
 
     // 到此时为止，前面做的东西没有改变map
     // 后续改变地图，所以加锁
 
+    // Step 6: 用估计的尺度 将 纯视觉的结果 缩放到真实的尺度，包括帧的位姿、速度和地图点，并且旋转地图坐标系使z轴与估计的重力方向对齐。
+    // IMU零偏初始值为0，优化更新为 更合理的估计值，并用 最新的惯性参数 更新 IMU预积分结果，以减少后续的线性误差
     {
         unique_lock<mutex> lock(mpAtlas->GetCurrentMap()->mMutexMapUpdate);
         // 非单目 或 尺度变化 > 设定值，则进行如下操作（无论带不带IMU，但这个函数只在带IMU时才执行，所以这个可以理解为双目IMU）
         if ((fabs(mScale - 1.f) > 0.00001) || !mbMonocular) {
-            // 4.1 恢复地图的尺度及重力方向，即更新每个关键帧在重力坐标系下的 位姿 和 速度，更新每个地图点在重力坐标系下的 坐标
+            // Step 6.1: 恢复地图的尺度及重力方向，即更新每个关键帧在重力坐标系下的 位姿 和 速度，更新每个地图点在重力坐标系下的 坐标
             Sophus::SE3f Twg(mRwg.cast<float>().transpose(), Eigen::Vector3f::Zero());  // 世界坐标系到重力坐标系的变换矩阵
+
             mpAtlas->GetCurrentMap()->ApplyScaledRotation(Twg, mScale, true);
-            // 4.2 将IMU与图像数据进行融合，并更新跟踪线程中普通帧的位姿，主要是当前帧和上一帧的 IMU 位姿和速度
+
+            // Step 6.2: 将IMU与图像数据进行融合，并更新跟踪线程中普通帧的位姿，主要是当前帧和上一帧的 IMU预积分结果 (旋转、位置、速度)
             mpTracker->UpdateFrameIMU(mScale, vpKF[0]->GetImuBias(), mpCurrentKeyFrame);
         }
         // 单目 且 尺度变化 <= 设定值，不更新关键帧在重力坐标系下的位姿，不更新普通帧的位姿
 
         // Check if initialization OK
-        // 若之前IMU还未初始化（此时刚刚初始化成功），则遍历每个关键帧，将其bImu设为true
+        // 遍历每个关键帧，将其bImu设为true，表示其是IMU第一阶段初始化完成前的关键帧
+        // 第一阶段初始化前的关键帧：在视觉+IMU全局优化中，会为其创建 速度顶点，在第三阶段初始化时，还为其创建 陀螺仪和加速度计零偏
         // 后面的KF全部都在Tracking里面标记为true。也就是初始化之前的那些关键帧即使有IMU信息也不算
         if (!mpAtlas->isImuInitialized()) {
             // 遍历每个关键帧
             for (int i = 0; i < N; i++) {
                 KeyFrame *pKF2 = vpKF[i];
-                pKF2->bImu = true;
+                pKF2->bImu = true;  // 表示该关键帧为IMU完成初始化之前的关键帧
             }
         }
     }
 
-    // Step 4: 初始化成功
+
+    // 再次更新普通帧的位姿，主要是当前帧和上一帧的 IMU 位姿和速度
     // TODO 这步更新是否有必要做待研究，0.4版本是放在FullInertialBA下面做的
-    // 这个版本FullInertialBA不直接更新位姿及三维点了
-    // 更新普通帧的位姿，主要是当前帧和上一帧的 IMU 位姿和速度
+    // 这个版本FullInertialBA不直接更新关键帧位姿及地图点坐标了
     mpTracker->UpdateFrameIMU(1.0,vpKF[0]->GetImuBias(),mpCurrentKeyFrame);
 
+    //! Step 7: 标记初始化成功
     if (!mpAtlas->isImuInitialized())
     {
         //! 标记初始化成功，意为IMU已经完成了第一阶段初始化
         mpAtlas->SetImuInitialized();
         std::cout << "\t\t[Local Mapping] IMU初始化成功" << std::endl;
         mpTracker->t0IMU = mpTracker->mCurrentFrame.mTimeStamp;
-        mpCurrentKeyFrame->bImu = true;
+        mpCurrentKeyFrame->bImu = true;     // 表示当前关键帧是IMU完成初始化前的关键帧
     }
 
     std::chrono::steady_clock::time_point t4 = std::chrono::steady_clock::now();
-    //! 视觉+IMU全局优化 (三个阶段的初始化都做)
-    // 优化地图中所有关键帧的位姿、地图点、完成第一阶段IMU初始化之前所有关键帧的速度
+    //! Step 8: 视觉+IMU全局优化 (三个阶段的初始化都做) 优化地图中所有关键帧的位姿、地图点、完成第一阶段IMU初始化之前(实际为第一阶段参与纯IMU优化) 的那些关键帧的速度 (第三阶段还优化其零偏)
     if (bFIBA)
     {
-        // 5. 按照之前的结果更新了尺度信息及适应重力方向，在上一步纯IMU优化的基础上，结合地图进行一次视觉+IMU全局优化
-        // 1.0版本里面不直接赋值了，而是将所有优化后的信息保存到变量里面
+        // 按照之前的结果更新了尺度信息及适应重力方向，在上一步纯IMU优化的基础上，结合地图进行一次视觉+IMU全局优化
+        // 1.0版本里面不直接赋值了，而是将所有优化后的信息先保存到相关变量里
         // IMU第一、二阶段初始化进入
         if (priorA != 0.f)
             Optimizer::FullInertialBA(mpAtlas->GetCurrentMap(), 100, false, mpCurrentKeyFrame->mnId, NULL, true, priorG, priorA);
@@ -1717,10 +1717,11 @@ void LocalMapping::InitializeIMU(float priorG, float priorA, bool bFIBA)
     // Get Map Mutex
     unique_lock<mutex> lock(mpAtlas->GetCurrentMap()->mMutexMapUpdate);
 
+    // 当前关键帧ID
     unsigned long GBAid = mpCurrentKeyFrame->mnId;
 
     // Process keyframes in the queue
-    // 6. 处理一下新来的关键帧，这些关键帧没有参与优化，但是这部分bInitializing为true，只在第2次跟第3次初始化会有新的关键帧进来
+    // Step 9: 处理新来的关键帧，这些关键帧没有参与优化，但是这部分bInitializing为true，只在第二、三阶段初始化时会有新的关键帧进来
     // 这部分关键帧也需要被更新
     while(CheckNewKeyFrames())
     {
@@ -1729,38 +1730,39 @@ void LocalMapping::InitializeIMU(float priorG, float priorA, bool bFIBA)
         lpKF.push_back(mpCurrentKeyFrame);
     }
 
-    // 引擎中没有7、8步，在对比时这里需注释
-    // Correct keyframes starting at map first keyframe
-    // 7. 更新地图中关键帧的位姿 和 地图点的坐标，删除并清空局部建图线程中缓存的关键帧
-    // 获取地图中初始关键帧，第一帧肯定经过修正的
+    // 引擎中没有10、11步，在对比时这里需注释
+    // 1.0版本 FullInertialBA 没有直接更新关键帧位姿及地图点坐标，而是暂存在临时变量中，在此时实际进行更新
+    // Step 10: 更新地图中关键帧的位姿；若是IMU第一阶段初始化完成前的关键帧，还更新 速度、零偏。从地图的初始关键帧开始修正，因为它肯定是经过修正的
     list<KeyFrame*> lpKFtoCheck(mpAtlas->GetCurrentMap()->mvpKeyFrameOrigins.begin(),mpAtlas->GetCurrentMap()->mvpKeyFrameOrigins.end());
 
     // 初始就一个关键帧，顺藤摸瓜找到父子相连的所有关键帧
     // 类似于树的广度优先搜索，其实也就是根据父子关系遍历所有的关键帧，有的参与了FullInertialBA有的没参与
     while(!lpKFtoCheck.empty())
     {
-        // 7.1 获得这个关键帧的子关键帧
         KeyFrame* pKF = lpKFtoCheck.front();
+        Sophus::SE3f Twc = pKF->GetPoseInverse();   // 初始关键帧的优化前的位姿
+
+        // Step 10.1: 获得初始关键帧的子关键帧
         const set<KeyFrame*> sChilds = pKF->GetChilds();
-        Sophus::SE3f Twc = pKF->GetPoseInverse();   // 获得关键帧的优化前的位姿
-        // 7.2 遍历这个关键帧所有的子关键帧
+
+        // Step 10.2: 遍历初始关键帧所有的子关键帧
         for(set<KeyFrame*>::const_iterator sit=sChilds.begin();sit!=sChilds.end();sit++)
         {
-            // 确认是否能用
             KeyFrame* pChild = *sit;
+            // 确认是否能用
             if(!pChild || pChild->isBad())
                 continue;
 
-            // 这个判定为true表示pChild没有参与前面的优化，因此要根据已经优化过的更新，结果全部暂存至变量
-            if(pChild->mnBAGlobalForKF!=GBAid)
+            // !=当前关键帧ID，表示该子关键帧 没有参与 前面的视觉+IMU全局优化，因此要根据与其父关键帧的相对变换，使用已经优化的关键帧来更新它们，结果暂存至变量mTcwGBA，mVwbGBA，在Step 10.5中正式更新
+            if(pChild->mnBAGlobalForKF != GBAid)
             {
-                // pChild->GetPose()也是优化前的位姿，Twc也是优化前的位姿
-                // 7.3 因此他们的相对位姿是比较准的，可以用于更新pChild的位姿
-                Sophus::SE3f Tchildc = pChild->GetPose() * Twc;
-                // 使用相对位姿，根据pKF优化后的位姿更新pChild位姿，最后结果都暂时放于mTcwGBA
+                // Step 10.3: 更新子关键帧的位姿
+                // 计算初始关键帧 到 该子关键帧的相对位姿 (是比较准的，可用于更新pChild的位姿)
+                Sophus::SE3f Tchildc = pChild->GetPose() * Twc;     // pChild->GetPose()也是优化前的位姿，Twc也是优化前的位姿
+                // 使用优化后初始关键帧的位姿 更新 该子关键帧的 位姿 (结果都暂时放于mTcwGBA)
                 pChild->mTcwGBA = Tchildc * pKF->mTcwGBA;
 
-                // 7.4 使用相同手段更新速度
+                // Step 10.4: 更新子关键帧的 速度
                 Sophus::SO3f Rcor = pChild->mTcwGBA.so3().inverse() * pChild->GetPose().so3();
                 if(pChild->isVelocitySet()){
                     pChild->mVwbGBA = Rcor * pChild->GetVelocity();
@@ -1769,85 +1771,81 @@ void LocalMapping::InitializeIMU(float priorG, float priorA, bool bFIBA)
                     Verbose::PrintMess("Child velocity empty!! ", Verbose::VERBOSITY_NORMAL);
                 }
 
+                // 未更新子关键帧的 零偏
                 pChild->mBiasGBA = pChild->GetImuBias();
+                // 标记其已更新
                 pChild->mnBAGlobalForKF = GBAid;
 
             }
-            // 加入到list中，再去寻找pChild的子关键帧
+            // 加入到关键帧列表中，再去寻找子关键帧们的 子关键帧们
             lpKFtoCheck.push_back(pChild);
-        }
+        }// 初始关键帧的所有子关键帧遍历完毕
 
-        // 7.5 此时pKF的利用价值就没了，但是里面的数值还都是优化前的，优化后的全部放于类似mTcwGBA这样的变量中
-        // 所以要更新到正式的状态里，另外mTcwBefGBA要记录更新前的位姿，用于同样的手段更新三维点用
-        pKF->mTcwBefGBA = pKF->GetPose();
-        pKF->SetPose(pKF->mTcwGBA);
+        // Step 10.5: 正式更新参与优化的关键帧的 位姿为 全局优化后的；若它是第一阶段初始化完成前的关键帧，还更新 速度、零偏 为 全局优化后的
+        // 此时pKF的利用价值就没了，但是里面的数值还都是优化前的，优化后的全部放于mTcwGBA这样的变量中
+        pKF->mTcwBefGBA = pKF->GetPose();   // 记录初始关键帧 优化前的位姿
+        pKF->SetPose(pKF->mTcwGBA);    // 正式更新位姿
 
-        // 速度偏置同样更新
+        // 若它是第一阶段初始化完成前(实际是第一阶段参与纯IMU优化)的关键帧，还更新 速度、零偏
         if(pKF->bImu)
         {
-            pKF->mVwbBefGBA = pKF->GetVelocity();
-            pKF->SetVelocity(pKF->mVwbGBA);
-            pKF->SetNewBias(pKF->mBiasGBA);
+            pKF->mVwbBefGBA = pKF->GetVelocity();   // 记录初始关键帧 优化前的速度
+            pKF->SetVelocity(pKF->mVwbGBA);    // 正式更新速度
+            pKF->SetNewBias(pKF->mBiasGBA);     // 正式更新零偏 (最一开始未参与优化的子关键帧们没有更新零偏)
         } else {
             cout << "KF " << pKF->mnId << " not set to inertial!! \n";
         }
 
-        lpKFtoCheck.pop_front();
+        lpKFtoCheck.pop_front();    // 从队列中删除初始关键帧
     }
 
     // Correct MapPoints
-    //  8. 更新三维点，三维点在优化后同样没有正式的更新，而是找了个中间变量保存了优化后的数值
+    // Step 11: 更新3D地图点的世界坐标。三维点在优化后同样没有正式的更新，而是找了个中间变量mPosGBA保存了优化后的数值
     const vector<MapPoint*> vpMPs = mpAtlas->GetCurrentMap()->GetAllMapPoints();
-
-    for(size_t i=0; i<vpMPs.size(); i++)
+    for(size_t i = 0; i < vpMPs.size(); i++)
     {
         MapPoint* pMP = vpMPs[i];
 
         if(pMP->isBad())
             continue;
 
-        // 8.1 如果这个点参与了全局优化，那么直接使用优化后的值来赋值
-        if(pMP->mnBAGlobalForKF==GBAid)
+        // Step 11.1: 该地图点参与前面的 视觉+IMU全局优化，那么直接使用优化后的坐标来更新
+        if(pMP->mnBAGlobalForKF == GBAid)
         {
-            // If optimized by Global BA, just update
             pMP->SetWorldPos(pMP->mPosGBA);
         }
-        // 如果没有参与，与关键帧的更新方式类似
+        // Step 11.2: 如果它没有参与优化，根据相对变换，使用其优化后的参考关键帧 来更新它的优化后的世界坐标
         else
         {
-            // Update according to the correction of its reference keyframe
+            // 该地图点的参考关键帧
             KeyFrame* pRefKF = pMP->GetReferenceKeyFrame();
+            if(pRefKF->mnBAGlobalForKF != GBAid)
+                continue;   // 其参考关键帧也未参与优化，则跳过
 
-            if(pRefKF->mnBAGlobalForKF!=GBAid)
-                continue;
-
-            // Map to non-corrected camera
-            // 8.2 根据优化前的世界坐标系下三维点的坐标以及优化前的关键帧位姿计算这个点在关键帧下的坐标
+            // Step 11.2.1 根据 优化前参考关键帧位姿 与 优化前该地图点的的世界坐标，计算其在参考关键帧下的坐标 (映射到未优化的参考关键帧)
             Eigen::Vector3f Xc = pRefKF->mTcwBefGBA * pMP->GetWorldPos();
-
-            // Backproject using corrected camera
-            // 8.3 根据优化后的位姿转到世界坐标系下作为这个点优化后的三维坐标
+            // Step 11.2.2 根据 优化后的参考关键帧位姿 更新 该地图点 的世界坐标
             pMP->SetWorldPos(pRefKF->GetPoseInverse() * Xc);
         }
     }
 
     Verbose::PrintMess("Map updated!", Verbose::VERBOSITY_NORMAL);
 
-    mnKFs=vpKF.size();
+    mnKFs = vpKF.size();
     mIdxInit++;
 
-    // 9. 再有新的来就不要了~不然陷入无限套娃了
-    for(list<KeyFrame*>::iterator lit = mlNewKeyFrames.begin(), lend=mlNewKeyFrames.end(); lit!=lend; lit++)
+    // Step 12: 删除并清空LocalMapping中缓存的关键帧列表。该列表中再有新的关键帧来，就不要了，不然陷入无限套娃了
+    for (list<KeyFrame*>::iterator lit = mlNewKeyFrames.begin(), lend=mlNewKeyFrames.end(); lit!=lend; lit++)
     {
         (*lit)->SetBadFlag();
         delete *lit;
     }
     mlNewKeyFrames.clear();
 
-    mpTracker->mState=Tracking::OK;
-    bInitializing = false;
+    mpTracker->mState = Tracking::OK;
+    bInitializing = false;  // 正在做IMU初始化标志置false，表示该阶段IMU初始化结束
 
-    mpCurrentKeyFrame->GetMap()->IncreaseChangeIndex();
+    mpCurrentKeyFrame->GetMap()->IncreaseChangeIndex(); // 地图的改变次数加1
 
     return;
 }

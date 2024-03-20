@@ -339,6 +339,11 @@ int KeyFrame::GetNumberMPs()
     return numberMPs;
 }
 
+/**
+ * 添加 当前关键帧 对 某地图点 的观测，即当前关键帧的第idx个特征点观测到了 某地图点
+ * @param pMP
+ * @param idx
+ */
 void KeyFrame::AddMapPoint(MapPoint *pMP, const size_t &idx)
 {
     unique_lock<mutex> lock(mMutexFeatures);
@@ -347,7 +352,7 @@ void KeyFrame::AddMapPoint(MapPoint *pMP, const size_t &idx)
 }
 
 /**
- * @brief 删除 当前关键帧 对 某地图点 的观测。由于其他的原因,导致当前关键帧观测到的某个地图点需被删除(bad==true), 则将该地图点置为NULL
+ * @brief 删除 当前关键帧 对 idx特征点对应地图点 的观测。由于其他的原因,导致当前关键帧观测到的某个地图点需被删除(bad==true), 则将该地图点置为NULL
  *
  * @param[in] idx   地图点在该关键帧中的id
  */
@@ -358,7 +363,7 @@ void KeyFrame::EraseMapPointMatch(const int &idx)
 }
 
 /**
- * @brief 删除 当前关键帧 对 某地图点 的观测，即将该地图点设为空指针。LBA中调用
+ * @brief 删除 当前关键帧 对 地图点pMP 的观测，即将该地图点设为空指针。LBA中调用
  * @param pMP
  */
 void KeyFrame::EraseMapPointMatch(MapPoint* pMP)

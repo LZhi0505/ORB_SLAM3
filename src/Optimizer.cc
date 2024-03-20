@@ -452,7 +452,7 @@ void Optimizer::BundleAdjustment(const vector<KeyFrame *> &vpKFs, const vector<M
 }
 
 /**
- * @brief IMU初始化中 视觉+IMU全局优化。LocalMapping::InitializeIMU中使用 LoopClosing::RunGlobalBundleAdjustment
+ * @brief 视觉+IMU全局优化。IMU初始化LocalMapping::InitializeIMU中使用 LoopClosing::RunGlobalBundleAdjustment
  * 地图全部做BA。也就是IMU版的GlobalBundleAdjustemnt
  * 根据上一步得到的Rwg和scale变换到整张地图，再进行IMU+视觉的整体优化
  * 优化的节点：关键帧位姿、速度、加速度和陀螺仪偏置、地图点
@@ -461,11 +461,11 @@ void Optimizer::BundleAdjustment(const vector<KeyFrame *> &vpKFs, const vector<M
  * @param its       迭代次数，100次
  * @param bFixLocal 是否固定局部，false
  * @param nLoopId   回环ID，当前关键帧ID
- * @param pbStopFlag 是否停止的标志，NULL
- * @param bInit     提供priorG、priorA时为 true，此时零偏只优化最后一关键帧的值，然后所有关键帧的零偏都赋值为优化后的值
- *                  若为false，则建立每两帧之间的零偏边，优化使其相差为0。顶点加入IMU第一阶段初始化之前关键帧的陀螺仪和加速度计零偏
- * @param priorG    陀螺仪偏置的信息矩阵系数。传入有值时 bInit 也为true，顶点加入地图中最后一个符合要求的关键帧的陀螺仪和加速度计偏置，这个数会作为计算信息矩阵时使用
- * @param priorA    加速度计偏置的信息矩阵系数。
+ * @param pbStopFlag 强制停止的标志，NULL
+ * @param bInit     提供priorG、priorA时为 true，即IMU第一、二阶段初始化，顶点加入地图中最后一个符合要求的关键帧的陀螺仪和加速度计零偏，此时零偏只优化最后一关键帧的值（priorA、priorG会作为计算信息矩阵时使用），然后所有关键帧的零偏都赋值为优化后的值
+ *                  若为false，即第三阶段初始化，则建立每两关键帧之间的零偏边，优化使其相差为0。顶点加入IMU第一阶段初始化之前关键帧的陀螺仪和加速度计零偏
+ * @param priorG    陀螺仪零偏的信息矩阵系数 (IMU第一、二阶段初始化时才有)
+ * @param priorA    加速度计零偏的信息矩阵系数 (IMU第一、二阶段初始化时才有)
  * @param vSingVal  没用，估计调试用的
  * @param bHess     没用，估计调试用的
  */
@@ -477,14 +477,14 @@ void Optimizer::FullInertialBA(Map *pMap, int its, const bool bFixLocal, const l
     const vector<MapPoint*> vpMPs = pMap->GetAllMapPoints();
 
     // Setup optimizer
-    // Step 1: 构造优化器
+    // Step 1: 构建优化器
     g2o::SparseOptimizer optimizer; // 创建稀疏优化器
     g2o::BlockSolverX::LinearSolverType * linearSolver; // 声明线性求解器的类型
     linearSolver = new g2o::LinearSolverEigen<g2o::BlockSolverX::PoseMatrixType>(); // 创建线性求解器
     g2o::BlockSolverX * solver_ptr = new g2o::BlockSolverX(linearSolver);   // 创建块求解器，并用上面的线性求解器初始化
     // 创建总求解器 solver，并使用 LM (Levenberg-Marquardt)算法；再用上面的块求解器初始化
     g2o::OptimizationAlgorithmLevenberg* solver = new g2o::OptimizationAlgorithmLevenberg(solver_ptr);
-    solver->setUserLambdaInit(1e-5);    // 将求解器的初始阻尼因子设为0.00001
+    solver->setUserLambdaInit(1e-5);    // 将求解器的初始阻尼因子设为0.00001，追求精度
     optimizer.setAlgorithm(solver);     // 将上述求解器作为稀疏优化器的求解方法
     optimizer.setVerbose(false);
 
@@ -493,10 +493,10 @@ void Optimizer::FullInertialBA(Map *pMap, int its, const bool bFixLocal, const l
 
     int nNonFixed = 0;
 
-    // 2. 为每个关键帧添加 位姿顶点；
-    // 若是IMU第一阶段初始化后的关键帧，则添加其速度顶点；若处于第三阶段初始化，则为其添加陀螺仪、加速度计零偏顶点
+    // Step 2: 为每个关键帧添加 位姿顶点；
+    //         若它是IMU第一阶段初始化完成前的关键帧，还添加其速度顶点, 且在IMU第三阶段初始化时，还为其添加陀螺仪、加速度计零偏顶点
     KeyFrame* pIncKF;   // vpKFs中最后一个ID符合要求的关键帧
-    // 遍历每个关键帧
+
     for(size_t i = 0; i < vpKFs.size(); i++)
     {
         KeyFrame* pKFi = vpKFs[i];
@@ -516,7 +516,7 @@ void Optimizer::FullInertialBA(Map *pMap, int its, const bool bFixLocal, const l
         }
         optimizer.addVertex(VP);
 
-        // 若该关键帧 是 IMU第一阶段初始化后的关键帧 (bImu为true)，则为该关键帧创建 速度顶点 (不固定)
+        // 若该关键帧 是 IMU第一阶段初始化完成前(实际为第一阶段参与纯IMU优化) 的那些关键帧 (bImu为true)，则为其创建 速度顶点 (不固定)
         if (pKFi->bImu)
         {
             VertexVelocity* VV = new VertexVelocity(pKFi);
@@ -525,7 +525,7 @@ void Optimizer::FullInertialBA(Map *pMap, int its, const bool bFixLocal, const l
             optimizer.addVertex(VV);
 
             // (bInit: IMU第一、二阶段初始化为true，第三阶段为false，也就是又加入了零偏节点)
-            // 第三阶段初始化时进入，为该关键帧创建 陀螺仪、加速度计零偏顶点 (不固定)
+            // 第三阶段初始化时，还为其创建 陀螺仪、加速度计零偏顶点 (不固定)
             if (!bInit)
             {
                 VertexGyroBias* VG = new VertexGyroBias(pKFi);
@@ -541,7 +541,7 @@ void Optimizer::FullInertialBA(Map *pMap, int its, const bool bFixLocal, const l
         }
     }// 每个关键帧遍历完毕
 
-    // 第一、二阶段初始化时进入，为最后一个关键帧 创建 陀螺仪、加速度计零偏顶点
+    // Step 3: 第一、二阶段初始化时，为最后一个关键帧添加 陀螺仪、加速度计零偏顶点
     if (bInit)
     {
         VertexGyroBias* VG = new VertexGyroBias(pIncKF);
@@ -561,8 +561,7 @@ void Optimizer::FullInertialBA(Map *pMap, int its, const bool bFixLocal, const l
             return;
     }
 
-    // 3. 添加关于IMU的边
-    // 遍历所有关键帧
+    // Step 4: 遍历所有关键帧，添加关于IMU的六元边
     for (size_t i = 0; i < vpKFs.size(); i++)
     {
         KeyFrame* pKFi = vpKFs[i];
@@ -579,13 +578,13 @@ void Optimizer::FullInertialBA(Map *pMap, int its, const bool bFixLocal, const l
             if (pKFi->isBad() || pKFi->mPrevKF->mnId > maxKFid)
                 continue;
 
-            // 该关键帧 及其 上一关键帧 都必须是 IMU第一阶段初始化后的关键帧
+            // 该关键帧 及其 上一关键帧 都必须是 IMU第一阶段初始化完成前(实际为第一阶段参与纯IMU优化) 的关键帧
             if(pKFi->bImu && pKFi->mPrevKF->bImu)
             {
-                // 3.1 将该关键帧的IMU预积分的零偏 设为 其上一关键帧的零偏
+                // Step 4:1: 将该关键帧的IMU预积分的零偏 设为 其上一关键帧的零偏
                 pKFi->mpImuPreintegrated->SetNewBias(pKFi->mPrevKF->GetImuBias());
-                // 3.2 设置顶点
-                g2o::HyperGraph::Vertex* VP1 = optimizer.vertex(pKFi->mPrevKF->mnId);   // 该关键帧的上一关键帧的 位姿顶点
+                // Step 4.2: 获取边要连接的 顶点
+                g2o::HyperGraph::Vertex* VP1 = optimizer.vertex(pKFi->mPrevKF->mnId);                   // 该关键帧的上一关键帧的 位姿顶点
                 g2o::HyperGraph::Vertex* VV1 = optimizer.vertex(maxKFid + 3*(pKFi->mPrevKF->mnId) + 1); // 该关键帧的上一关键帧的 速度顶点
 
                 g2o::HyperGraph::Vertex* VG1;
@@ -624,7 +623,7 @@ void Optimizer::FullInertialBA(Map *pMap, int its, const bool bFixLocal, const l
                     }
                 }
 
-                // 3.3 创建六元边，并设置相关的顶点
+                // Step 4.3: 添加六元边，并设置相关的顶点
                 EdgeInertial* ei = new EdgeInertial(pKFi->mpImuPreintegrated);
                 ei->setVertex(0,dynamic_cast<g2o::OptimizableGraph::Vertex*>(VP1));
                 ei->setVertex(1,dynamic_cast<g2o::OptimizableGraph::Vertex*>(VV1));
@@ -642,11 +641,11 @@ void Optimizer::FullInertialBA(Map *pMap, int its, const bool bFixLocal, const l
                 // 将该边添加到优化器中
                 optimizer.addEdge(ei);
 
-                // 第三阶段初始化时，添加一个IMU陀螺仪零偏、一个加速度计零链接的 二元边。(优化两关键帧之间零偏的误差)
+                // Step 4.4:第三阶段初始化时，添加上一关键帧与该关键帧间的一个IMU陀螺仪零偏、一个加速度计零偏二元边。(优化上一关键帧 与 该关键帧 之间 零偏的误差)
                 if (!bInit)
                 {
-                    EdgeGyroRW* egr= new EdgeGyroRW();
-                    egr->setVertex(0,VG1);  // 该关键帧前一关键帧的 陀螺仪零偏顶点
+                    EdgeGyroRW* egr= new EdgeGyroRW();  // 添加陀螺仪零偏二元边
+                    egr->setVertex(0,VG1);  // 该关键帧上一关键帧的 陀螺仪零偏顶点
                     egr->setVertex(1,VG2);  // 该关键帧的 陀螺仪零偏顶点
                     // 从预积分的协方差矩阵中提取的陀螺仪零偏的信息, 并作为该边的信息矩阵
                     Eigen::Matrix3d InfoG = pKFi->mpImuPreintegrated->C.block<3,3>(9,9).cast<double>().inverse();
@@ -654,8 +653,8 @@ void Optimizer::FullInertialBA(Map *pMap, int its, const bool bFixLocal, const l
                     egr->computeError();
                     optimizer.addEdge(egr);
 
-                    EdgeAccRW* ear = new EdgeAccRW();
-                    ear->setVertex(0,VA1);  // 该关键帧前一关键帧的 加速度计零偏顶点
+                    EdgeAccRW* ear = new EdgeAccRW();   // 添加速度计零偏二元边
+                    ear->setVertex(0,VA1);  // 该关键帧上一关键帧的 加速度计零偏顶点
                     ear->setVertex(1,VA2);  // 该关键帧的 加速度计零偏顶点
                     // 从预积分的协方差矩阵中提取的加速度计零偏的信息, 并作为该边的信息矩阵
                     Eigen::Matrix3d InfoA = pKFi->mpImuPreintegrated->C.block<3,3>(12,12).cast<double>().inverse();
@@ -667,28 +666,28 @@ void Optimizer::FullInertialBA(Map *pMap, int its, const bool bFixLocal, const l
             else
                 cout << pKFi->mnId << " or " << pKFi->mPrevKF->mnId << " no imu" << endl;
         }
-    }
+    }// 遍历所有关键帧完毕
 
-    // 只加入pIncKF帧的偏置，优化偏置到0
-    // 第一、二阶段初始化时，添加最后一个参考关键帧的 加速度计、陀螺仪零偏的 边
+    // 只加入pIncKF帧的零偏，优化零偏到0
+    // Step 5: 第一、二阶段初始化时，添加最后一个关键帧的 加速度计、陀螺仪零偏的 一元边
     if (bInit)
     {
         g2o::HyperGraph::Vertex* VG = optimizer.vertex(4*maxKFid+2);    // 最后一个关键帧的 陀螺仪零偏顶点
         g2o::HyperGraph::Vertex* VA = optimizer.vertex(4*maxKFid+3);    // 最后一个关键帧的 加速度计零偏顶点
 
-        // Add prior to comon biases
+        // 零偏的先验为0
         Eigen::Vector3f bprior;
         bprior.setZero();
-
+        // 加速度计零偏 一元边
         EdgePriorAcc* epa = new EdgePriorAcc(bprior);
-        epa->setVertex(0,dynamic_cast<g2o::OptimizableGraph::Vertex*>(VA));
-        double infoPriorA = priorA; //
-        epa->setInformation(infoPriorA*Eigen::Matrix3d::Identity());
+        epa->setVertex(0,dynamic_cast<g2o::OptimizableGraph::Vertex*>(VA)); // 该边 连接的顶点: 顶点0为加速度计零偏 顶点
+        double infoPriorA = priorA;         // 传入的 加速度计零偏的信息矩阵 系数 (初始化第一阶段为1e10, 第二阶段为1e5)
+        epa->setInformation(infoPriorA*Eigen::Matrix3d::Identity());    // 该边的 信息矩阵
         optimizer.addEdge(epa);
-
+        // 陀螺仪零偏 一元边
         EdgePriorGyro* epg = new EdgePriorGyro(bprior);
         epg->setVertex(0,dynamic_cast<g2o::OptimizableGraph::Vertex*>(VG));
-        double infoPriorG = priorG; //
+        double infoPriorG = priorG;         // 传入的 陀螺仪零偏的信息矩阵 系数 (初始化第一阶段为1e2, 第二阶段为1.f)
         epg->setInformation(infoPriorG*Eigen::Matrix3d::Identity());
         optimizer.addEdge(epg);
     }
@@ -696,33 +695,36 @@ void Optimizer::FullInertialBA(Map *pMap, int its, const bool bFixLocal, const l
     const float thHuberMono = sqrt(5.991);
     const float thHuberStereo = sqrt(7.815);
 
-    const unsigned long iniMPid = maxKFid*5;
+    const unsigned long iniMPid = maxKFid * 5;
 
     vector<bool> vbNotIncludedMP(vpMPs.size(),false);
 
-    // 5. 添加关于地图点的顶点与边，这段比较好理解，很传统的视觉上的重投影误差
-    for(size_t i=0; i<vpMPs.size(); i++)
+    // Step 6: 为地图中的所有地图点都 创建一个地图点顶点，并且为每个地图点 与 观测到它们的关键帧们 添加二元边 (这段比较好理解，很传统的视觉上的重投影误差)
+    for(size_t i = 0; i < vpMPs.size(); i++)
     {
         MapPoint* pMP = vpMPs[i];
+
+        // 创建一个 地图点顶点
         g2o::VertexSBAPointXYZ* vPoint = new g2o::VertexSBAPointXYZ();
-        vPoint->setEstimate(pMP->GetWorldPos().cast<double>());
-        unsigned long id = pMP->mnId+iniMPid+1;
+        vPoint->setEstimate(pMP->GetWorldPos().cast<double>());     // 该顶点的估计值：该地图点的世界坐标
+        unsigned long id = pMP->mnId + iniMPid + 1; // 该顶点的ID: 该地图点的ID + 最大关键帧ID*5 + 1
         vPoint->setId(id);
-        vPoint->setMarginalized(true);
-        optimizer.addVertex(vPoint);
+        vPoint->setMarginalized(true);  // 设置该地图点顶点为 边缘化，即在优化过程中，这个顶点不会被更新，而是被积分掉，从而减少优化问题的维度, 加速稀疏矩阵的计算
+        optimizer.addVertex(vPoint);    // 添加到优化器中
 
+        // 获取该局部地图点的观测情况
         const map<KeyFrame*,tuple<int,int>> observations = pMP->GetObservations();
-
 
         bool bAllFixed = true;
 
-        //Set edges
-        //  遍历所有能观测到这个点的关键帧
+        // Set edges
+        // 添加边: 每添加完一个地图点顶点，对该地图点 和 每个观测到它的关键帧 创建边
+        // 遍历所有能观测到这个地图点的 关键帧
         for(map<KeyFrame*,tuple<int,int>>::const_iterator mit=observations.begin(), mend=observations.end(); mit!=mend; mit++)
         {
             KeyFrame* pKFi = mit->first;
 
-            if(pKFi->mnId>maxKFid)
+            if(pKFi->mnId > maxKFid)
                 continue;
 
             if(!pKFi->isBad())
@@ -731,70 +733,80 @@ void Optimizer::FullInertialBA(Map *pMap, int its, const bool bFixLocal, const l
                 cv::KeyPoint kpUn;
 
                 // 添加边
-                if(leftIndex != -1 && pKFi->mvuRight[get<0>(mit->second)]<0) // Monocular observation
+                // 单目
+                if(leftIndex != -1 && pKFi->mvuRight[get<0>(mit->second)] < 0) // Monocular observation
                 {
-                    kpUn = pKFi->mvKeysUn[leftIndex];
-                    Eigen::Matrix<double,2,1> obs;
+                    kpUn = pKFi->mvKeysUn[leftIndex];   // 观测到该地图点的关键帧 对 它 的观测值：对应特征点的去畸变像素坐标
+                    Eigen::Matrix<double,2,1> obs;      // 创建观测值
                     obs << kpUn.pt.x, kpUn.pt.y;
 
+                    // 创建单目二元边
                     EdgeMono* e = new EdgeMono(0);
 
                     g2o::OptimizableGraph::Vertex* VP = dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(pKFi->mnId));
                     if(bAllFixed)
                         if(!VP->fixed())
-                            bAllFixed=false;
+                            bAllFixed = false;
 
+                    // 该边 连接的顶点: 顶点0为 该地图点顶点；顶点1为 观测到该地图点的一个关键帧位姿顶点
                     e->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(id)));
                     e->setVertex(1, VP);
-                    e->setMeasurement(obs);
+                    e->setMeasurement(obs);     // 设置该边 的观测值：通常是观测到的特征点坐标 (其当前帧的左目的像素坐标)
+
+                    // 设置信息矩阵
                     const float invSigma2 = pKFi->mvInvLevelSigma2[kpUn.octave];
-
-                    e->setInformation(Eigen::Matrix2d::Identity()*invSigma2);
-
+                    e->setInformation(Eigen::Matrix2d::Identity() * invSigma2);
+                    // 设置鲁棒核函数
                     g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
                     e->setRobustKernel(rk);
                     rk->setDelta(thHuberMono);
 
-                    optimizer.addEdge(e);
+                    optimizer.addEdge(e);   // 将该边添加到优化器中
                 }
+                // PinHole双目、RGBD
                 else if(leftIndex != -1 && pKFi->mvuRight[leftIndex] >= 0) // stereo observation
                 {
-                    kpUn = pKFi->mvKeysUn[leftIndex];
+                    kpUn = pKFi->mvKeysUn[leftIndex];       // 观测到该地图点的关键帧 对 它 的观测值：对应特征点的去畸变像素坐标
                     const float kp_ur = pKFi->mvuRight[leftIndex];
-                    Eigen::Matrix<double,3,1> obs;
+                    Eigen::Matrix<double,3,1> obs;          // 创建观测值，并写入 左目去畸变特征点坐标 和 右目对应特征点横坐标
                     obs << kpUn.pt.x, kpUn.pt.y, kp_ur;
 
+                    // 创建PinHole双目二元边
                     EdgeStereo* e = new EdgeStereo(0);
 
                     g2o::OptimizableGraph::Vertex* VP = dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(pKFi->mnId));
                     if(bAllFixed)
                         if(!VP->fixed())
-                            bAllFixed=false;
+                            bAllFixed = false;
 
+                    // 设置该边 连接的顶点: 顶点0为 该地图点顶点；顶点1为 观测到该地图点的一个关键帧位姿顶点
                     e->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(id)));
                     e->setVertex(1, VP);
-                    e->setMeasurement(obs);
+                    e->setMeasurement(obs);     // 设置该边 的观测值
+                    // 设置信息矩阵
                     const float invSigma2 = pKFi->mvInvLevelSigma2[kpUn.octave];
-
-                    e->setInformation(Eigen::Matrix3d::Identity()*invSigma2);
-
+                    e->setInformation(Eigen::Matrix3d::Identity() * invSigma2);
+                    // 设置鲁棒核函数
                     g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
                     e->setRobustKernel(rk);
                     rk->setDelta(thHuberStereo);
 
-                    optimizer.addEdge(e);
+                    optimizer.addEdge(e);   // 将该边添加到优化器中
                 }
 
-                if(pKFi->mpCamera2){ // Monocular right observation
-                    int rightIndex = get<1>(mit->second);
+                // KB鱼眼双目的 右目
+                if(pKFi->mpCamera2) { // Monocular right observation
+                    int rightIndex = get<1>(mit->second);   // 该地图点 在 该观测到它的关键帧的 在右目的特征点的索引
 
+                    // 右目观测到了
                     if(rightIndex != -1 && rightIndex < pKFi->mvKeysRight.size()){
-                        rightIndex -= pKFi->NLeft;
+                        rightIndex -= pKFi->NLeft;  // 真实在右目的索引
 
-                        Eigen::Matrix<double,2,1> obs;
+                        Eigen::Matrix<double,2,1> obs;  // 创建观测值，并写入 右目去畸变特征点坐标
                         kpUn = pKFi->mvKeysRight[rightIndex];
                         obs << kpUn.pt.x, kpUn.pt.y;
 
+                        // 创建单目二元边
                         EdgeMono *e = new EdgeMono(1);
 
                         g2o::OptimizableGraph::Vertex* VP = dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(pKFi->mnId));
@@ -802,77 +814,87 @@ void Optimizer::FullInertialBA(Map *pMap, int its, const bool bFixLocal, const l
                             if(!VP->fixed())
                                 bAllFixed=false;
 
+                        // 设置该边 连接的顶点: 顶点0为 该地图点顶点；顶点1为 观测到该地图点的一个关键帧位姿顶点
                         e->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(id)));
                         e->setVertex(1, VP);
                         e->setMeasurement(obs);
+                        // 设置信息矩阵
                         const float invSigma2 = pKFi->mvInvLevelSigma2[kpUn.octave];
                         e->setInformation(Eigen::Matrix2d::Identity()*invSigma2);
-
+                        // 设置鲁棒核函数
                         g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
                         e->setRobustKernel(rk);
                         rk->setDelta(thHuberMono);
 
-                        optimizer.addEdge(e);
+                        optimizer.addEdge(e);   // 将该边添加到优化器中
                     }
                 }
             }
-        }
+        }// 为一个地图点添加完边
 
-        // false
+        // false，不进入
         if(bAllFixed)
         {
             optimizer.removeVertex(vPoint);
             vbNotIncludedMP[i]=true;
         }
-    }
+    }// 为每个地图点创建完顶点，并为它们添加完边
 
     if(pbStopFlag)
         if(*pbStopFlag)
             return;
 
+    // Step 7: 开始优化
+    optimizer.initializeOptimization(); // 初始化优化器, 这里的参数默认为0, 也就是优化等级为0，只对 level 为 0 的边进行优化；不对外点进行优化（外点等级为1）
+    optimizer.optimize(its);   // 迭代优化100次
 
-    optimizer.initializeOptimization();
-    optimizer.optimize(its);
-
-    // 5. 取出优化结果，对应的值赋值
-    // Recover optimized data
-    //Keyframes
-    for(size_t i=0; i<vpKFs.size(); i++)
+    // Step 8: 取出优化结果。(并未对关键帧的位姿直接赋值，而是先暂存到另外的变量中)
+    // 关键帧
+    for(size_t i = 0; i < vpKFs.size(); i++)
     {
         KeyFrame* pKFi = vpKFs[i];
-        if(pKFi->mnId>maxKFid)
+        if(pKFi->mnId > maxKFid)
             continue;
-        VertexPose* VP = static_cast<VertexPose*>(optimizer.vertex(pKFi->mnId));
-        if(nLoopId==0)
+        VertexPose* VP = static_cast<VertexPose*>(optimizer.vertex(pKFi->mnId));    // 该关键帧优化后的 位姿 顶点指针
+        // 当前关键帧ID == 0，IMU初始化调用时不进入
+        if(nLoopId == 0)
         {
             Sophus::SE3f Tcw(VP->estimate().Rcw[0].cast<float>(), VP->estimate().tcw[0].cast<float>());
             pKFi->SetPose(Tcw);
         }
+        // IMU初始化调用时进入
         else
         {
+            // 更新该关键帧的 mTcwGBA 为 优化后的 位姿
             pKFi->mTcwGBA = Sophus::SE3f(VP->estimate().Rcw[0].cast<float>(),VP->estimate().tcw[0].cast<float>());
+            // 更新该关键帧的 mnBAGlobalForKF 为 当前关键帧ID
             pKFi->mnBAGlobalForKF = nLoopId;
 
         }
-        if(pKFi->bImu)
+
+        // 若该关键帧是 IMU第一阶段初始化完成前(实际为第一阶段参与纯IMU优化) 关键帧
+        if (pKFi->bImu)
         {
-            VertexVelocity* VV = static_cast<VertexVelocity*>(optimizer.vertex(maxKFid+3*(pKFi->mnId)+1));
+            VertexVelocity* VV = static_cast<VertexVelocity*>(optimizer.vertex(maxKFid+3*(pKFi->mnId)+1));  // 该关键帧优化后的 速度 顶点指针
             if(nLoopId==0)
             {
                 pKFi->SetVelocity(VV->estimate().cast<float>());
             }
             else
             {
+                // 更新该关键帧的 mVwbGBA 为 优化后的 速度
                 pKFi->mVwbGBA = VV->estimate().cast<float>();
             }
 
             VertexGyroBias* VG;
             VertexAccBias* VA;
+            // IMU初始化第三阶段，陀螺仪零偏顶点、加速度计零偏顶点为 该关键帧的
             if (!bInit)
             {
                 VG = static_cast<VertexGyroBias*>(optimizer.vertex(maxKFid+3*(pKFi->mnId)+2));
                 VA = static_cast<VertexAccBias*>(optimizer.vertex(maxKFid+3*(pKFi->mnId)+3));
             }
+            // IMU初始化第一、二阶段，陀螺仪零偏顶点、加速度计零偏顶点 为最后一个关键帧的
             else
             {
                 VG = static_cast<VertexGyroBias*>(optimizer.vertex(4*maxKFid+2));
@@ -881,6 +903,7 @@ void Optimizer::FullInertialBA(Map *pMap, int its, const bool bFixLocal, const l
 
             Vector6d vb;
             vb << VG->estimate(), VA->estimate();
+            // 用优化后的零偏创建 新零偏
             IMU::Bias b (vb[3],vb[4],vb[5],vb[0],vb[1],vb[2]);
             if(nLoopId==0)
             {
@@ -888,19 +911,20 @@ void Optimizer::FullInertialBA(Map *pMap, int its, const bool bFixLocal, const l
             }
             else
             {
+                // 更新该关键帧的 mVwbGBA 为 优化后的 零偏
                 pKFi->mBiasGBA = b;
             }
         }
     }
 
-    //Points
+    // 地图点
     for(size_t i=0; i<vpMPs.size(); i++)
     {
         if(vbNotIncludedMP[i])
             continue;
 
         MapPoint* pMP = vpMPs[i];
-        g2o::VertexSBAPointXYZ* vPoint = static_cast<g2o::VertexSBAPointXYZ*>(optimizer.vertex(pMP->mnId+iniMPid+1));
+        g2o::VertexSBAPointXYZ* vPoint = static_cast<g2o::VertexSBAPointXYZ*>(optimizer.vertex(pMP->mnId+iniMPid+1));   // 该地图点顶点
 
         if(nLoopId==0)
         {
@@ -909,12 +933,14 @@ void Optimizer::FullInertialBA(Map *pMap, int its, const bool bFixLocal, const l
         }
         else
         {
+            // 更新该地图点的 mPosGBA 为优化后的 世界坐标
             pMP->mPosGBA = vPoint->estimate().cast<float>();
             pMP->mnBAGlobalForKF = nLoopId;
         }
 
     }
 
+    // 地图改变次数+1
     pMap->IncreaseChangeIndex();
 }
 
@@ -3445,6 +3471,7 @@ void Optimizer::LocalInertialBA(KeyFrame *pKF, bool *pbStopFlag, Map *pMap, int&
     float err = optimizer.activeRobustChi2();   // 计算活跃边优化前的 误差 (这个误差是经过鲁棒核函数处理的)
 
     optimizer.optimize(opt_it); // 迭代优化opt_it次
+
     float err_end = optimizer.activeRobustChi2();    // 计算活跃边优化后的 误差
 
     // Step 14: BA优化后，检查外部是否请求停止优化，收到则强制停止优化器
@@ -3495,7 +3522,7 @@ void Optimizer::LocalInertialBA(KeyFrame *pKF, bool *pbStopFlag, Map *pMap, int&
 
 
     // TODO: Some convergence problems have been detected here
-    // (活跃边优化前的误差*2 < 优化后的误差 或 优化前后误差包含NaN值) 且 没有匹配到足够的点，说明IMU 局部BA失败，返回
+    // (活跃边优化前的误差*2 < 优化后的误差 或 优化前、后误差包含NaN值) 且 没有匹配到足够的点，说明视觉+IMU局部BA失败，返回
     if((2 * err < err_end || isnan(err) || isnan(err_end)) && !bLarge) //bGN)
     {
         cout << "FAIL LOCAL-INERTIAL BA!!!!" << endl;
@@ -3672,48 +3699,41 @@ Eigen::MatrixXd Optimizer::Marginalize(const Eigen::MatrixXd &H, const int &star
 /**************************************以下为尺度与重力优化**************************************************************/
 
 /**
- * @brief IMU初始化中 纯IMU优化。LocalMapping::InitializeIMU中使用
- * 固定 关键帧位姿
- * 优化 重力方向、尺度、关键帧的速度和零偏
- * @param pMap 地图
- * @param Rwg 重力坐标系到世界坐标系的旋转矩阵 的初值，(重力方向到速度方向的转角)
- * @param scale 尺度（输出cout用）
- * @param bg 陀螺仪偏置（输出cout用）
- * @param ba 加速度计偏置（输出cout用）
+ * @brief 纯IMU优化。LocalMapping::InitializeIMU 中使用
+ * 固定：关键帧位姿
+ * 优化：重力方向、尺度(双目不优化)、关键帧的速度和零偏
+ * @param pMap  地图
+ * @param Rwg   重力坐标系到世界坐标系的旋转矩阵  (重力方向到速度方向的转角，第一阶段初值为计算的，第二三阶段为单位矩阵，输出为优化后的)
+ * @param scale 尺度 （初值为1，输出为优化后的值）
+ * @param bg    陀螺仪零偏 （第一阶段初值为0，第二三阶段初值为当前关键帧的值，输出为优化后的初始关键帧的值）
+ * @param ba    加速度计零偏 （第一阶段初值为0，第二三阶段初值为当前关键帧的值，输出为优化后的初始关键帧的）
  * @param bMono 是否为单目
- * @param covInertial IMU协方差矩阵 (暂时没用，9*9的0矩阵)
- * @param bFixedVel 是否固定速度，不优化。false则优化速度
- * @param bGauss  没用，false
- * @param priorG 陀螺仪零偏的信息矩阵 系数  (初始化第一阶段为1e2, 第二阶段为1.f, 第三阶段为0.f)
- * @param priorA 加速度计零偏的信息矩阵 系数  (初始化第一阶段为1e10, 第二阶段为1e5, 第三阶段为0.f)
+ * @param covInertial IMU协方差矩阵  (暂时没用，9*9的0矩阵)
+ * @param bFixedVel     是否固定速度，不优化。为false表示优化速度
+ * @param bGauss    没用，false
+ * @param priorG    陀螺仪零偏的信息矩阵 系数  (初始化第一阶段为1e2, 第二阶段为1.f, 第三阶段为0.f)
+ * @param priorA    加速度计零偏的信息矩阵 系数  (初始化第一阶段为1e5, 第二阶段为1e5, 第三阶段为0.f)
  */
 void Optimizer::InertialOptimization(Map *pMap, Eigen::Matrix3d &Rwg, double &scale, Eigen::Vector3d &bg, Eigen::Vector3d &ba, bool bMono, Eigen::MatrixXd  &covInertial, bool bFixedVel, bool bGauss, float priorG, float priorA)
 {
     Verbose::PrintMess("inertial optimization", Verbose::VERBOSITY_NORMAL);
     int its = 200;
     long unsigned int maxKFid = pMap->GetMaxKFid(); // 当前地图关键帧的最大ID
-    const vector<KeyFrame*> vpKFs = pMap->GetAllKeyFrames();    // 当前地图的所有关键帧
+    const vector<KeyFrame*> vpKFs = pMap->GetAllKeyFrames();    // 当前地图(mspKeyFrames中)的所有关键帧
 
     // Setup optimizer
     // Step 1: 构建优化器
-    // Step 1.1：创建稀疏优化器
-    g2o::SparseOptimizer optimizer;
-    // Step 1.2：声明线性求解器的类型
-    g2o::BlockSolverX::LinearSolverType * linearSolver;
-    // Step 1.3：创建线性求解器
-    linearSolver = new g2o::LinearSolverEigen<g2o::BlockSolverX::PoseMatrixType>();
-    // Step 1.4：创建块求解器，并用上面的线性求解器初始化
-    g2o::BlockSolverX * solver_ptr = new g2o::BlockSolverX(linearSolver);
+    g2o::SparseOptimizer optimizer; // 创建稀疏优化器
+    g2o::BlockSolverX::LinearSolverType * linearSolver;     // 声明线性求解器的类型
+    linearSolver = new g2o::LinearSolverEigen<g2o::BlockSolverX::PoseMatrixType>(); // 创建线性求解器
+    g2o::BlockSolverX * solver_ptr = new g2o::BlockSolverX(linearSolver);   // 创建块求解器，并用上面的线性求解器初始化
+    g2o::OptimizationAlgorithmLevenberg* solver = new g2o::OptimizationAlgorithmLevenberg(solver_ptr);  // 创建总求解器 solver，并从GN、LM、DogLeg中选择一个，这里使用了 LM (Levenberg-Marquardt)算法；再用上面的块求解器初始化
 
-    // Step 1.5：创建总求解器 solver，并从GN、LM、DogLeg中选择一个，这里使用了 LM (Levenberg-Marquardt)算法；再用上面的块求解器初始化
-    g2o::OptimizationAlgorithmLevenberg* solver = new g2o::OptimizationAlgorithmLevenberg(solver_ptr);
-
-    // Step 1.6：陀螺仪零偏的信息矩阵系数 != 0时，设置求解器的初始正则化参数（阻尼因子）为1000。其用于 控制求解器在解决非线性优化问题时收敛速度和结果精度之间的平衡。
-    // 正则化参数越高，求解器达到收敛的速度就越快，但是结果的精度可能会变得更差。相反，如果正则化参数越低，结果的精度可能会更高，但收敛速度会变慢，同时求解器可能会发生数值上的不稳定。
+    // IMU第一、二阶段初始化时，陀螺仪零偏的信息矩阵系数 != 0，设置求解器的初始正则化参数（阻尼因子）为1000。其用于 控制求解器在解决非线性优化问题时收敛速度 和 结果精度之间的平衡。
+    // 正则化参数越高，求解器收敛速度越快，但结果的精度可能会变得更差。相反，如果正则化参数越低，结果的精度可能会更高，但收敛速度会变慢，同时求解器可能会发生数值上的不稳定。
     if (priorG != 0.f)
         solver->setUserLambdaInit(1e3);
-
-    // Step 1.7：将上述求解器作为稀疏优化器的求解方法
+    // 将总求解器作为稀疏优化器的求解方法
     optimizer.setAlgorithm(solver);
 
     // Set KeyFrame vertices (fixed poses and optimizable velocities)
@@ -3729,7 +3749,7 @@ void Optimizer::InertialOptimization(Map *pMap, Eigen::Matrix3d &Rwg, double &sc
         // 创建关键帧的 位姿顶点 (固定)
         VertexPose * VP = new VertexPose(pKFi); // 继承于public g2o::BaseVertex<6, ImuCamPose>
         VP->setId(pKFi->mnId);
-        VP->setFixed(true);     // 固定住，不优化；
+        VP->setFixed(true);     // 固定住，不优化
         optimizer.addVertex(VP);    // 将该顶点添加到优化器中
 
         // 创建关键帧的 速度顶点 (不固定)
@@ -3742,8 +3762,7 @@ void Optimizer::InertialOptimization(Map *pMap, Eigen::Matrix3d &Rwg, double &sc
         optimizer.addVertex(VV);
     }
 
-    // Biases
-    // Step 3: 添加初始参考关键帧（第一个关键帧）的 陀螺仪、加速度计的 零偏 顶点 (不固定)
+    // Step 3: 创建初始关键帧（第一个关键帧）的 陀螺仪、加速度计的 零偏 顶点 (不固定)
     VertexGyroBias* VG = new VertexGyroBias(vpKFs.front()); // 创建陀螺仪零偏 顶点
     VG->setId(maxKFid * 2 + 2);
     if (bFixedVel)
@@ -3760,25 +3779,24 @@ void Optimizer::InertialOptimization(Map *pMap, Eigen::Matrix3d &Rwg, double &sc
         VA->setFixed(false);    // 优化加速度计 零偏
     optimizer.addVertex(VA);
 
-    // prior acc bias
+    // 零偏边的先验为0
     Eigen::Vector3f bprior;
     bprior.setZero();
 
-    // Step 4: 添加初始参考关键帧（第一个关键帧）的 加速度计、陀螺仪零偏的 边
+    // Step 4: 添加初始关键帧（第一个关键帧）的 加速度计、陀螺仪零偏的 一元边
     EdgePriorAcc* epa = new EdgePriorAcc(bprior);   // 创建加速度计零偏 一元边
     epa->setVertex(0,dynamic_cast<g2o::OptimizableGraph::Vertex*>(VA)); // 该边 连接的顶点: 顶点0为加速度计零偏 顶点
-    double infoPriorA = priorA;     // 传入的加速度计零偏的 信息矩阵 系数 (初始化第一阶段为1e10, 第二阶段为1e5, 第三阶段为0.f)
+    double infoPriorA = priorA;     // 传入的 加速度计零偏的 信息矩阵 系数 (初始化第一阶段为1e10, 第二阶段为1e5, 第三阶段为0.f)
     epa->setInformation(infoPriorA * Eigen::Matrix3d::Identity());  // 该边的 信息矩阵
     optimizer.addEdge(epa);     // 将该边添加到优化器中
 
     EdgePriorGyro* epg = new EdgePriorGyro(bprior); // 创建陀螺仪零偏 一元边
     epg->setVertex(0,dynamic_cast<g2o::OptimizableGraph::Vertex*>(VG)); // 该边 连接的顶点: 顶点0为陀螺仪零偏 顶点
-    double infoPriorG = priorG;     // 传入的陀螺仪零偏的 信息矩阵 系数 (初始化第一阶段为1e2, 第二阶段为1.f, 第三阶段为0.f)
+    double infoPriorG = priorG;     // 传入的 陀螺仪零偏的 信息矩阵 系数 (初始化第一阶段为1e2, 第二阶段为1.f, 第三阶段为0.f)
     epg->setInformation(infoPriorG * Eigen::Matrix3d::Identity());  // 该边的 信息矩阵
     optimizer.addEdge(epg);
 
-    // Gravity and scale
-    // Step 5: 添加 重力方向、尺度的 顶点 (不固定)
+    // Step 5: 创建 重力方向、尺度 顶点 (不固定)
     VertexGDir* VGDir = new VertexGDir(Rwg);    // 创建重力方向 顶点
     VGDir->setId(maxKFid * 2 + 4);
     VGDir->setFixed(false);     // 优化
@@ -3791,12 +3809,13 @@ void Optimizer::InertialOptimization(Map *pMap, Eigen::Matrix3d &Rwg, double &sc
 
     // Graph edges
     // IMU links with gravity and scale
-    // Step 6: 添加 关键帧之间与IMU信息、重力方向、尺度信息链接的 八元边。将关键帧之间的IMU测量信息与重力方向和尺度进行优化
+    // Step 6: 添加 上一关键帧与该关键帧之间，与IMU信息、重力方向、尺度信息链接的八元边。将关键帧之间的IMU测量信息与重力方向和尺度进行优化
+
     // 存储与IMU信息、重力方向、尺度信息链接的八元边
     vector<EdgeInertialGS*> vpei;
     vpei.reserve(vpKFs.size());
 
-    // 存储使用的某关键帧的前一关键帧 与 其的 关键帧对
+    // 存储某关键帧的上一关键帧 与 其的 关键帧对
     vector<pair<KeyFrame*,KeyFrame*> > vppUsedKF;
     vppUsedKF.reserve(vpKFs.size());
     //std::cout << "build optimization graph" << std::endl;
@@ -3815,12 +3834,11 @@ void Optimizer::InertialOptimization(Map *pMap, Eigen::Matrix3d &Rwg, double &sc
                 std::cout << "Not preintegrated measurement" << std::endl;
 
             // 到这里的条件: pKFi是好的，且它有上一个关键帧，且它的ID<最大ID
-            // Step 6.1: 检查顶点指针是否为空
-            // 将该关键帧的IMU预积分的零偏 设为 上一关键帧的零偏
+            // Step 6.1: 将该关键帧的IMU预积分的零偏 设为 其上一关键帧的零偏
             pKFi->mpImuPreintegrated->SetNewBias(pKFi->mPrevKF->GetImuBias());
-
-            g2o::HyperGraph::Vertex* VP1 = optimizer.vertex(pKFi->mPrevKF->mnId);   // 该关键帧前一关键帧的 位姿顶点
-            g2o::HyperGraph::Vertex* VV1 = optimizer.vertex(maxKFid+(pKFi->mPrevKF->mnId)+1); // 该关键帧前一关键帧的 速度顶点
+            // Step 6.2: 检查顶点指针是否为空
+            g2o::HyperGraph::Vertex* VP1 = optimizer.vertex(pKFi->mPrevKF->mnId);   // 该关键帧上一关键帧的 位姿顶点
+            g2o::HyperGraph::Vertex* VV1 = optimizer.vertex(maxKFid+(pKFi->mPrevKF->mnId)+1); // 该关键帧上一关键帧的 速度顶点
             g2o::HyperGraph::Vertex* VP2 =  optimizer.vertex(pKFi->mnId);   // 该关键帧的 位姿顶点
             g2o::HyperGraph::Vertex* VV2 = optimizer.vertex(maxKFid+(pKFi->mnId)+1);    // 该关键帧的 速度顶点
             g2o::HyperGraph::Vertex* VG = optimizer.vertex(maxKFid*2+2);    // 陀螺仪零偏顶点
@@ -3833,7 +3851,7 @@ void Optimizer::InertialOptimization(Map *pMap, Eigen::Matrix3d &Rwg, double &sc
                 cout << "Error" << VP1 << ", "<< VV1 << ", "<< VG << ", "<< VA << ", " << VP2 << ", " << VV2 <<  ", "<< VGDir << ", "<< VS <<endl;
                 continue;
             }
-            // Step 6.2: 创建一个IMU信息链接 八元边，并设置相关的顶点。这是一个大边，包含了上面所有信息。(注意到前面的两个零偏也做了两个一元边加入)
+            // Step 6.3: 创建一个IMU信息链接 八元边，并设置相关的顶点。(注意到前面的两个初始关键帧的零偏也做了两个一元边加入)
             EdgeInertialGS* ei = new EdgeInertialGS(pKFi->mpImuPreintegrated);
             ei->setVertex(0,dynamic_cast<g2o::OptimizableGraph::Vertex*>(VP1));
             ei->setVertex(1,dynamic_cast<g2o::OptimizableGraph::Vertex*>(VV1));
@@ -3861,25 +3879,27 @@ void Optimizer::InertialOptimization(Map *pMap, Eigen::Matrix3d &Rwg, double &sc
     optimizer.optimize(its);
 
     // Step 8: 获取优化后的结果
-    scale = VS->estimate(); // 优化后的尺度
+    // 获取优化后的 尺度
+    scale = VS->estimate();
 
-    // Recover optimized data
-    // Biases
+    // 获取优化后的 初始关键帧的 陀螺仪零偏 和 加速度计零偏
     VG = static_cast<VertexGyroBias*>(optimizer.vertex(maxKFid*2+2));   // 优化后的 初始关键帧的 陀螺仪零偏顶点指针，并转换为VertexGyroBias类型
     VA = static_cast<VertexAccBias*>(optimizer.vertex(maxKFid*2+3));    // 优化后的 初始关键帧的 加速度计零偏顶点指针，并转换为VertexAccBias类型
     Vector6d vb;
     vb << VG->estimate(), VA->estimate();   // 优化后的 初始关键帧的 陀螺仪、加速度计零偏
     bg << VG->estimate();
     ba << VA->estimate();
-    scale = VS->estimate();     // 更新尺度
 
-    // 使用优化后的 初始关键帧的 零偏向量vb 构建一个IMU::Bias对象 b
+    scale = VS->estimate();
+
+    // 使用优化后的初始关键帧的零偏 构建一个IMU::Bias对象 b
     IMU::Bias b (vb[3],vb[4],vb[5],vb[0],vb[1],vb[2]);
-    // 从优化后的结果中获取 重力坐标系到世界坐标系的 旋转矩阵初值 Rwg
+
+    // 获取优化后的 重力坐标系到世界坐标系的 旋转矩阵 Rwg
     Rwg = VGDir->estimate().Rwg;
 
     // Keyframes velocities and biases
-    // 更新每个关键帧的 速度 和 零偏(优化后的初始关键帧的零偏)
+    // 更新每个关键帧的 速度 和 零偏(为优化后的初始关键帧的零偏)
     const int N = vpKFs.size();
     for(size_t i = 0; i < N; i++)
     {
@@ -3891,7 +3911,7 @@ void Optimizer::InertialOptimization(Map *pMap, Eigen::Matrix3d &Rwg, double &sc
         Eigen::Vector3d Vw = VV->estimate();    // 优化后的速度，Velocity is scaled after
         pKFi->SetVelocity(Vw.cast<float>());    // 更新关键帧的速度
 
-        // 检查该关键帧的陀螺仪零偏是否发生变化 (即关键帧的陀螺仪零偏 - 优化后的陀螺仪零偏的 模 是否>0.01)，
+        // 检查每个关键帧的陀螺仪零偏是否发生变化 (即每个关键帧优化前的陀螺仪零偏 - 初始关键帧优化后的陀螺仪零偏的 模 是否>0.01)
         if ((pKFi->GetGyroBias() - bg.cast<float>()).norm() > 0.01)
         {
             pKFi->SetNewBias(b);    // 更新该关键帧的零偏 为 优化后的初始关键帧的零偏
@@ -3904,14 +3924,14 @@ void Optimizer::InertialOptimization(Map *pMap, Eigen::Matrix3d &Rwg, double &sc
 }
 
 /**
- * @brief LoopClosing::MergeLocal2 中使用
- * 跟参数最多的那个同名函数不同的地方在于很多节点不可选是否固定，优化的目标有：
- * 速度，偏置
- * @param pMap 地图
- * @param bg 陀螺仪偏置
- * @param ba 加速度计偏置
- * @param priorG 陀螺仪偏置的信息矩阵系数
- * @param priorA 加速度计偏置的信息矩阵系数
+ * @brief 纯IMU优化 LoopClosing::MergeLocal2 中使用
+ * 不同的地方在于很多节点不可选是否固定，
+ * 优化：速度，零偏
+ * @param pMap  地图
+ * @param bg    陀螺仪零偏
+ * @param ba    加速度计零偏
+ * @param priorG 陀螺仪零偏的信息矩阵系数
+ * @param priorA 加速度计零偏的信息矩阵系数
  */
 void Optimizer::InertialOptimization(Map *pMap, Eigen::Vector3d &bg, Eigen::Vector3d &ba, float priorG, float priorA)
 {
@@ -4076,10 +4096,10 @@ void Optimizer::InertialOptimization(Map *pMap, Eigen::Vector3d &bg, Eigen::Vect
 }
 
 /**
- * @brief 优化重力方向与尺度，LocalMapping::ScaleRefinement()中使用，优化目标有：
- * 重力方向与尺度
- * @param pMap 地图
- * @param Rwg 重力方向到速度方向的转角
+ * @brief 纯IMU优化。LocalMapping::ScaleRefinement()中使用，
+ * 优化：重力方向、尺度
+ * @param pMap  地图
+ * @param Rwg   重力方向到速度方向的转角
  * @param scale 尺度
  */
 void Optimizer::InertialOptimization(Map *pMap, Eigen::Matrix3d &Rwg, double &scale)

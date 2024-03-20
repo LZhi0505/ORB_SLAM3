@@ -644,8 +644,9 @@ public:
     }
 };
 
-
-
+/**
+ * 上一关键帧与该关键帧之间的 陀螺仪零偏二元边
+ */
 class EdgeGyroRW : public g2o::BaseBinaryEdge<3,Eigen::Vector3d,VertexGyroBias,VertexGyroBias>
 {
 public:
@@ -681,7 +682,9 @@ public:
     }
 };
 
-
+/**
+ * 上一关键帧与该关键帧之间的 加速度计零偏二元边
+ */
 class EdgeAccRW : public g2o::BaseBinaryEdge<3,Eigen::Vector3d,VertexAccBias,VertexAccBias>
 {
 public:

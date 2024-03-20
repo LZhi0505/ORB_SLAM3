@@ -140,6 +140,7 @@ public:
     // ------- liuzhi加 -------
     int trackOK_frame_num = 0;
     int total_frame_num = 0;
+    std::ofstream ofs_frame;
     // -----------------------
 
     // Input sensor

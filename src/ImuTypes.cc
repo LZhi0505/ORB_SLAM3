@@ -42,7 +42,7 @@ Eigen::Matrix3f NormalizeRotation(const Eigen::Matrix3f &R){
 }
 
 /**
- * @brief 计算右雅可比
+ * @brief 计算右雅可比矩阵
  * @param xyz 李代数
  * @return Jr
  */
@@ -55,10 +55,9 @@ Eigen::Matrix3f RightJacobianSO3(const float &x, const float &y, const float &z)
     Eigen::Vector3f v;
     v << x, y, z;
     Eigen::Matrix3f W = Sophus::SO3f::hat(v);
-    if(d<eps) {
+    if (d < eps) {
         return I;
-    }
-    else {
+    } else {
         return I - W*(1.0f-cos(d))/d2 + W*W*(d-sin(d))/(d2*d);
     }
 }
@@ -74,7 +73,7 @@ Eigen::Matrix3f RightJacobianSO3(const Eigen::Vector3f &v)
 }
 
 /**
- * @brief 计算右雅可比的逆
+ * @brief 计算右雅可比矩阵的 逆
  * @param xyz so3
  * @return Jr^-1
  */
@@ -107,36 +106,43 @@ Eigen::Matrix3f InverseRightJacobianSO3(const Eigen::Vector3f &v)
 }
 
 /**
- * @brief 计算旋转 角度积分量 (旋转矩阵 与 右乘雅可比矩阵)
- * @param[in] angVel    陀螺仪角速度
- * @param[in] imuBias   陀螺仪零偏
- * @param[in] time      时间差
+ * @brief 计算 旋转角度积分量 (旋转矩阵 与 右乘雅可比矩阵)
+ * 对应Bias更新对预积分的影响一节
+ * @param[in] angVel    陀螺仪数据 (角速度)
+ * @param[in] imuBias   陀螺仪零偏 (角速度零偏)
+ * @param[in] time      两帧间的时间差, derta t
  */
 IntegratedRotation::IntegratedRotation(const Eigen::Vector3f &angVel, const Bias &imuBias, const float &time) {
-    // 去零偏后的 旋转向量
+    // 得到考虑零偏后的角度旋转：去零偏后的 旋转向量
     const float x = (angVel(0) - imuBias.bwx) * time;
     const float y = (angVel(1) - imuBias.bwy) * time;
     const float z = (angVel(2) - imuBias.bwz) * time;
 
+    // 计算旋转矩阵的模值，后面用罗德里格公式计算旋转矩阵时会用到
     const float d2 = x * x + y * y + z * z;
     const float d = sqrt(d2);
 
     Eigen::Vector3f v;
     v << x, y, z;
-    // 旋转向量的反对称矩阵
+
+    // 角度转成叉积的矩阵形式：旋转向量的反对称矩阵
     Eigen::Matrix3f W = Sophus::SO3f::hat(v);
-    // 模长 < eps
+
+    // 模长 < eps (eps = 1e-4 是一个小量，根据罗德里格斯公式求极限，后面的高阶小量忽略掉得到此式)
     if(d < eps) {
-        deltaR = Eigen::Matrix3f::Identity() + W;   // 当前时刻 到 下一时刻的 旋转矩阵
-        rightJ = Eigen::Matrix3f::Identity();   // 右乘雅可比矩阵
+        deltaR = Eigen::Matrix3f::Identity() + W;   // 当前时刻 到 下一时刻的 旋转矩阵 (3*3 单位矩阵 + W(叉积矩阵的形式))
+        rightJ = Eigen::Matrix3f::Identity();   // 右乘雅可比矩阵 E
     } else {
+        // 经典预积分计算公式
         deltaR = Eigen::Matrix3f::Identity() + W * sin(d) / d + W * W * (1.0f - cos(d)) / d2;
+        // 右雅可比矩阵 公式1.6
         rightJ = Eigen::Matrix3f::Identity() - W * (1.0f - cos(d)) / d2 + W * W * (d - sin(d)) / (d2 * d);
     }
 }
 
 /**
- * @brief 预积分类构造函数，根据输入的零偏初始化预积分参数
+ * @brief 预积分类的构造函数，根据输入的零偏初始化预积分参数
+ * 这个主要是把协方差矩阵赋值了。Nga、NgaWalk是Preintegrated类的类内public变量。表示一段时间预积分的协方差矩阵
  * @param b_ 零偏
  * @param calib IMU标定参数的类
  */
@@ -148,12 +154,16 @@ Preintegrated::Preintegrated(const Bias &b_, const Calib &calib)
 }
 
 // Copy constructor
+/**
+ * @brief 预积分类的构造函数
+ * @param pImuPre   上一段时间的预积分
+ * 这一段就是把上段预积分的每个变量取出来赋值到当前的预积分类的成员变量里面
+ */
 Preintegrated::Preintegrated(Preintegrated* pImuPre): dT(pImuPre->dT),C(pImuPre->C), Info(pImuPre->Info),
      Nga(pImuPre->Nga), NgaWalk(pImuPre->NgaWalk), b(pImuPre->b), dR(pImuPre->dR), dV(pImuPre->dV),
     dP(pImuPre->dP), JRg(pImuPre->JRg), JVg(pImuPre->JVg), JVa(pImuPre->JVa), JPg(pImuPre->JPg), JPa(pImuPre->JPa),
     avgA(pImuPre->avgA), avgW(pImuPre->avgW), bu(pImuPre->bu), db(pImuPre->db), mvMeasurements(pImuPre->mvMeasurements)
 {
-
 }
 
 /**
@@ -171,6 +181,7 @@ void Preintegrated::CopyFrom(Preintegrated* pImuPre)
     dR = pImuPre->dR;
     dV = pImuPre->dV;
     dP = pImuPre->dP;
+    // 旋转关于陀螺仪偏置变化的雅克比，以此类推
     JRg = pImuPre->JRg;
     JVg = pImuPre->JVg;
     JVa = pImuPre->JVa;
@@ -184,11 +195,12 @@ void Preintegrated::CopyFrom(Preintegrated* pImuPre)
 }
 
 /**
- * @brief 初始化 预积分
- * @param b_ 偏置
+ * @brief 初始化预积分函数：就把偏置更新了一下
+ * @param b_ 零偏
  */
 void Preintegrated::Initialize(const Bias &b_)
 {
+    // 除了dR设置为单位矩阵,其他均设置为0矩阵
     dR.setIdentity();
     dV.setZero();
     dP.setZero();
@@ -201,21 +213,25 @@ void Preintegrated::Initialize(const Bias &b_)
     Info.setZero();
     db.setZero();
     b=b_;
-    bu=b_;
-    avgA.setZero();
-    avgW.setZero();
+    bu=b_;  // 更新后的偏置
+    avgA.setZero(); // 平均加速度
+    avgW.setZero(); // 平均角速度
     dT=0.0f;
-    mvMeasurements.clear();
+    mvMeasurements.clear(); // 存放imu数据及dt
 }
 
 /**
  * @brief 根据新的零偏 重新积分 mvMeasurements里的数据 Optimizer::InertialOptimization调用
+ * 重新积分函数：将这段时间的IMU数据取出来放到容器中，然后用更新后的偏置bu更新偏置，其他参数全部初始化，然后重新计算这段时间的预积分（这个函数是最重要的函数）
  */
 void Preintegrated::Reintegrate()
 {
     std::unique_lock<std::mutex> lock(mMutex);
+    // 将这段时间的所有imu数据取出来放在aux向量中
     const std::vector<integrable> aux = mvMeasurements;
+    // 根据最新的偏置bu重新初始化
     Initialize(bu);
+    // 计算预积分
     for(size_t i = 0; i < aux.size(); i++)
         IntegrateNewMeasurement(aux[i].a,aux[i].w,aux[i].t);
 }
@@ -225,11 +241,12 @@ void Preintegrated::Reintegrate()
  *
  * @param[in] acceleration  IMU当前时刻 到 下一时刻的 平均加速度 (在这里作为 当前时刻的IMU 加速度)
  * @param[in] angVel        IMU当前时刻 到 下一时刻的 平均角速度 (当前时刻的IMU 角速度)
- * @param[in] dt            对应时刻间的 时间差
+ * @param[in] dt            两数据间的 时间差
  */
 void Preintegrated::IntegrateNewMeasurement(const Eigen::Vector3f &acceleration, const Eigen::Vector3f &angVel, const float &dt)
 {
     // 保存 IMU 数据，利用中值积分的结果构造一个预积分类保存在 mvMeasurements 中
+    // mvMeasurements保存着一段时间的IMU数据，现保存上以备后续使用
     mvMeasurements.push_back(integrable(acceleration,angVel,dt));
 
     // 先更新 位置，因为其依赖于之前计算的 速度和旋转；
@@ -239,14 +256,14 @@ void Preintegrated::IntegrateNewMeasurement(const Eigen::Vector3f &acceleration,
     // Matrices to compute covariance
     // Step 1: 构造协方差矩阵
 
-    // Step 1.1: 定义 预积分噪声矩阵 的传递矩阵A，用于计算 i 到 j-1 的历史噪声或者协方差; 和 B，用于计算 j-1 新的噪声或协方差；
+    // Step 1.1: 定义 预积分噪声矩阵 的传递矩阵，A 用于计算 i 到 j-1 的历史噪声或者协方差; B用于计算 j-1 新的噪声或协方差；
     // 这两个矩阵里面的数都是当前时刻的，计算主要是为了下一时刻使用
     Eigen::Matrix<float, 9, 9> A;
     A.setIdentity();
     Eigen::Matrix<float, 9, 6> B;
     B.setZero();
 
-    // 当前时刻 去零偏后 的加速度、平均角速度
+    // 当前时刻 去零偏后 的加速度、平均角速度 (考虑偏置后的加速度、角速度，根据偏置得到数据)
     Eigen::Vector3f acc, accW;
     acc << acceleration(0) - b.bax, acceleration(1) - b.bay, acceleration(2) - b.baz;   // a~_j-1 - b^a_i
     accW << angVel(0) - b.bwx, angVel(1) - b.bwy, angVel(2) - b.bwz;
@@ -257,7 +274,7 @@ void Preintegrated::IntegrateNewMeasurement(const Eigen::Vector3f &acceleration,
     avgA = (dT * avgA + dR * acc * dt) / (dT + dt);
     avgW = (dT * avgW + accW * dt) / (dT + dt);
 
-    // 根据 未更新的dR 来 更新 dP 与 dV (15-19)
+    // 更新位置和速度：根据 没有更新的dR 来更新 dP与dV (15-19)
     dP = dP + dV * dt + 0.5f * dR * acc * dt * dt;  // △R~_i,j-2 + △V~_i,j-1 * dt + 1/2 * △R~_i,j-1 * (△a_j-1 - b^a_j-1) * dt^2
     dV = dV + dR * acc * dt;
 
@@ -265,6 +282,7 @@ void Preintegrated::IntegrateNewMeasurement(const Eigen::Vector3f &acceleration,
     // Step 3: 根据 η_ij = A * η_i,j-1 + B_j-1 * η_j-1 中的Ａ矩阵和Ｂ矩阵 更新 速度和位移 (15-48)
     // Step 3.1: 加速度噪声分离项的 反对称矩阵 (加速度测量值 - 加速度零偏)
     Eigen::Matrix<float, 3, 3> Wacc = Sophus::SO3f::hat(acc);   // (a~_j-1 - b^a_i)^
+
     A.block<3,3>(3,0) = -dR * dt * Wacc;
     A.block<3,3>(6,0) = -0.5f * dR * dt * dt * Wacc;
     A.block<3,3>(6,3) = Eigen::DiagonalMatrix<float, 3>(dt, dt, dt);
@@ -274,14 +292,14 @@ void Preintegrated::IntegrateNewMeasurement(const Eigen::Vector3f &acceleration,
     // Update position and velocity jacobians wrt bias correction
     // 因为随着时间推移，不可能每次都重新计算雅克比矩阵，所以需要做J(k+1) = j(k) + (~)这类事，分解方式与A、B矩阵相同
     // 论文作者对forster论文公式的基础上做了变形，然后递归更新，参见 https://github.com/UZ-SLAMLab/ORB_SLAM3/issues/212
-    // 即零偏更新后 各预积分量对零偏的偏导的递推模型 (雅可比矩阵)
+    // 即零偏更新后 各预积分量对零偏的偏导的递推模型 (雅可比矩阵)  (计算预积分相对于偏置的雅可比矩阵)
     JPa = JPa + JVa * dt - 0.5f * dR * dt * dt;                 // (15-67)
     JPg = JPg + JVg * dt - 0.5f * dR * dt * dt * Wacc * JRg;    // (15-66)
     JVa = JVa - dR * dt;                                        // (15-62)
     JVg = JVg - dR * dt * Wacc * JRg;                           // (15-63)
 
     // Step 2: 根据更新后的bias进行角度积分，更新 旋转预积分量
-    IntegratedRotation dRi(angVel, b, dt);  // 计算去零偏后的 旋转增量对应的旋转矩阵 与 右乘雅可比矩阵    dRi.deltaR: △R~_j-1,j
+    IntegratedRotation dRi(angVel, b, dt);  // (构造函数，会根据更新后的bias进行角度积分) 计算去零偏后的 旋转增量对应的旋转矩阵 与 右乘雅可比矩阵    dRi.deltaR: △R~_j-1,j
     dR = NormalizeRotation(dR * dRi.deltaR);    // 更新旋转预积分的测量值 △R~_i,j = △R~_i,j-1 * △R~_j-1,j，并强制归一化使其符合旋转矩阵的格式
 
     // 用最新的预积分测量值补充更新A、B矩阵中剩余的元素    (15-48)
@@ -289,7 +307,9 @@ void Preintegrated::IntegrateNewMeasurement(const Eigen::Vector3f &acceleration,
     A.block<3, 3>(0,0) = dRi.deltaR.transpose();    // △R~_j,j-1
     B.block<3, 3>(0,0) = dRi.rightJ * dt;           // J^j-1_r
 
-    // Step 3: 更新预积分测量协方差 (15-51)
+    // 小量delta初始为0，更新后通常也为0，故省略了小量的更新
+
+    // Step 3: 更新预积分测量 协方差 (15-51)
     // B矩阵为 9x6 矩阵；Nga: IMU测量噪声n^d_k的协方差，6x6 对角矩阵，3个陀螺仪噪声的平方，3个加速度计噪声的平方
     // C矩阵为 预积分噪声 n^△_i,j 的协方差
     C.block<9, 9>(0,0) = A * C.block<9, 9>(0,0) * A.transpose() + B * Nga * B.transpose();
@@ -297,6 +317,9 @@ void Preintegrated::IntegrateNewMeasurement(const Eigen::Vector3f &acceleration,
     C.block<6, 6>(9,9) += NgaWalk;
 
     // 最后更新旋转的雅可比矩阵 (15-60)
+    // 计算偏置的雅克比矩阵，r对bg的导数，∂ΔRij/∂bg = (ΔRjj-1) * ∂ΔRij-1/∂bg - Jr(j-1)*t
+    // 论文作者对forster论文公式的基础上做了变形，然后递归更新，参见 https://github.com/UZ-SLAMLab/ORB_SLAM3/issues/212
+    // ? 为什么先更新JPa、JPg、JVa、JVg最后更新JRg? 答：这里必须先更新dRi才能更新到这个值，但是为什么JPg和JVg依赖的上一个JRg值进行更新的？
     JRg = dRi.deltaR.transpose() * JRg - dRi.rightJ * dt;
 
     // 累加总积分时间
@@ -305,7 +328,8 @@ void Preintegrated::IntegrateNewMeasurement(const Eigen::Vector3f &acceleration,
 
 /**
  * @brief 融合两个预积分，发生在删除关键帧的时候，3帧变2帧，需要把两段预积分融合
- * @param pPrev 前面的预积分
+ * @param pPrev 前面的预积分 (上一段时间的预积分，即上上一帧 -> 上一帧)
+ * 先取到最新的积分利用偏置的改变重新初始化预积分
  */
 void Preintegrated::MergePrevious(Preintegrated* pPrev)
 {
@@ -314,6 +338,7 @@ void Preintegrated::MergePrevious(Preintegrated* pPrev)
 
     std::unique_lock<std::mutex> lock1(mMutex);
     std::unique_lock<std::mutex> lock2(pPrev->mMutex);
+    // 取到最新的偏置信息
     Bias bav;
     bav.bwx = bu.bwx;
     bav.bwy = bu.bwy;
@@ -322,10 +347,13 @@ void Preintegrated::MergePrevious(Preintegrated* pPrev)
     bav.bay = bu.bay;
     bav.baz = bu.baz;
 
+    // 存放上一段预积分中的所有数据
     const std::vector<integrable > aux1 = pPrev->mvMeasurements;
     const std::vector<integrable> aux2 = mvMeasurements;
 
+    // 重新初始化预积分
     Initialize(bav);
+    // 好像没啥用呢
     for(size_t i = 0; i < aux1.size(); i++)
         IntegrateNewMeasurement(aux1[i].a, aux1[i].w, aux1[i].t);
     for(size_t i = 0;i < aux2.size(); i++)
@@ -369,8 +397,13 @@ IMU::Bias Preintegrated::GetDeltaBias(const Bias &b_)
 Eigen::Matrix3f Preintegrated::GetDeltaRotation(const Bias &b_)
 {
     std::unique_lock<std::mutex> lock(mMutex);
+    // 计算偏置的变化量
     Eigen::Vector3f dbg;
     dbg << b_.bwx - b.bwx, b_.bwy - b.bwy, b_.bwz - b.bwz;
+
+    // 考虑偏置后，dR对偏置线性化的近似求解,邱笑晨《预积分总结与公式推导》P13～P14
+    // Forster论文公式（44）yP17也有结果（但没有推导），后面两个函数GetDeltaPosition和GetDeltaPosition也是基于此推导的
+    // 更新之前的dR * Exp(雅可比矩阵 * 偏置改变量)
     return NormalizeRotation(dR * Sophus::SO3f::exp(JRg * dbg).matrix());
 }
 
@@ -385,6 +418,8 @@ Eigen::Vector3f Preintegrated::GetDeltaVelocity(const Bias &b_)
     Eigen::Vector3f dbg, dba;
     dbg << b_.bwx - b.bwx, b_.bwy-b.bwy, b_.bwz - b.bwz;
     dba << b_.bax - b.bax, b_.bay-b.bay, b_.baz - b.baz;
+
+    // 考虑偏置后，dV对偏置线性化的近似求解,邱笑晨《预积分总结与公式推导》P13，JPg和JPa在预积分处理中更新
     return dV + JVg * dbg + JVa * dba;
 }
 
@@ -399,6 +434,8 @@ Eigen::Vector3f Preintegrated::GetDeltaPosition(const Bias &b_)
     Eigen::Vector3f dbg, dba;
     dbg << b_.bwx - b.bwx, b_.bwy - b.bwy, b_.bwz - b.bwz;
     dba << b_.bax - b.bax, b_.bay - b.bay, b_.baz - b.baz;
+
+    // 考虑偏置后，dP对偏置线性化的近似求解,邱笑晨《预积分总结与公式推导》P13，JPg和JPa在预积分处理中更新
     return dP + JPg * dbg + JPa * dba;
 }
 
@@ -491,8 +528,8 @@ Eigen::Matrix<float,6,1> Preintegrated::GetDeltaBias()
 }
 
 /**
- * @brief 赋值新的偏置
- * @param b 偏置
+ * @brief 赋值新的零偏
+ * @param b 零偏
  */
 void Bias::CopyFrom(Bias &b)
 {
@@ -546,7 +583,9 @@ void Calib::Set(const Sophus::SE3<float> &sophTbc, const float &ng, const float 
     // Sophus/Eigen
     mTbc = sophTbc;
     mTcb = mTbc.inverse();
+    // 噪声协方差
     Cov.diagonal() << ng2, ng2, ng2, na2, na2, na2;
+    // 随机游走协方差
     CovWalk.diagonal() << ngw2, ngw2, ngw2, naw2, naw2, naw2;
 }
 

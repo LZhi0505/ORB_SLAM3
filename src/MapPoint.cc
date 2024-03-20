@@ -37,7 +37,7 @@ MapPoint::MapPoint():
 }
 
 /**
- * @brief 构造函数
+ * @brief 地图点的 构造函数
  */
 MapPoint::MapPoint(const Eigen::Vector3f &Pos, KeyFrame *pRefKF, Map* pMap):
     mnFirstKFid(pRefKF->mnId), mnFirstFrame(pRefKF->mnFrameId), nObs(0), mnTrackReferenceForFrame(0),
@@ -55,7 +55,7 @@ MapPoint::MapPoint(const Eigen::Vector3f &Pos, KeyFrame *pRefKF, Map* pMap):
 
     // MapPoints can be created from Tracking and Local Mapping. This mutex avoid conflicts with id.
     unique_lock<mutex> lock(mpMap->mMutexPointCreation);
-    mnId=nNextId++;
+    mnId = nNextId++;
 }
 
 MapPoint::MapPoint(const double invDepth, cv::Point2f uv_init, KeyFrame* pRefKF, KeyFrame* pHostKF, Map* pMap):
@@ -146,7 +146,7 @@ KeyFrame* MapPoint::GetReferenceKeyFrame()
 }
 
 /**
- * @brief 添加当前地图点对某KeyFrame的观测，即该地图点被哪个关键帧中的哪个特征点观测到
+ * @brief 添加 当前地图点 对 某KeyFrame的观测，即该地图点被哪个关键帧中的哪个特征点观测到
  *
  * @param pKF   观测到该地图点的关键帧
  * @param idx

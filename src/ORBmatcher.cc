@@ -2008,14 +2008,12 @@ namespace ORB_SLAM3
                     }// 当前帧中，在上一帧的某个地图点的投影位置 周围区域内，找到与该地图点 拥有最小距离的 特征点索引和最小距离
 
                     // 最佳匹配距离 < 阈值
-                    if(bestDist <= TH_HIGH)
-                    {
+                    if(bestDist <= TH_HIGH) {
                         CurrentFrame.mvpMapPoints[bestIdx2] = pMP;  // 将该地图点设为当前帧最佳匹配特征点 对应的 地图点
                         nmatches++;
 
                         // Step 6：计算匹配点旋转角度差所在的直方图
-                        if(mbCheckOrientation)
-                        {
+                        if(mbCheckOrientation) {
                             cv::KeyPoint kpLF = (LastFrame.Nleft == -1) ? LastFrame.mvKeysUn[i]
                                                                         : (i < LastFrame.Nleft) ? LastFrame.mvKeys[i]
                                                                                                 : LastFrame.mvKeysRight[i - LastFrame.Nleft];
