@@ -267,7 +267,7 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
  * @brief 双目 / 双目+IMU跟踪
  * @param imLeft    左目图像
  * @param imRight   右目图像
- * @param timestamp 当前帧时间戳 (s)
+ * @param timestamp 当前帧的图片时间戳 (s)
  * @param vImuMeas  上一帧至当前帧的 IMU测量数据 (非IMU模式下为空)
  * @param filename  左目图片路径 (IMU模式下为空)
  * @return
@@ -336,16 +336,16 @@ Sophus::SE3f System::TrackStereo(const cv::Mat &imLeft, const cv::Mat &imRight, 
         }
     }
 
-    // IMU模式，则将两帧之间的IMU数据传递给Tracking中的 mlQueueImuData 链表里
-    if (mSensor == System::IMU_STEREO)
-        for (size_t i_imu = 0; i_imu < vImuMeas.size(); i_imu++)
+    // 双目+IMU
+    if (mSensor == System::IMU_STEREO) {
+        // 将上一帧到当前帧的IMU数据 ，传递给Tracking中的 mlQueueImuData 链表里
+        for (size_t i_imu = 0; i_imu < vImuMeas.size(); i_imu++) {
             mpTracker->GrabImuData(vImuMeas[i_imu]);
+        }
+    }
 
     // 进行双目跟踪
-    // std::cout << "start GrabImageStereo" << std::endl;
     Sophus::SE3f Tcw = mpTracker->GrabImageStereo(imLeftToFeed, imRightToFeed, timestamp, filename);
-
-    // std::cout << "out grabber" << std::endl;
 
     unique_lock<mutex> lock2(mMutexState);
     mTrackingState = mpTracker->mState;

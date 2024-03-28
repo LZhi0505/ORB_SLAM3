@@ -8,7 +8,7 @@ echo "script_dir: $script_dir"
 cd "$script_dir"
 
 # 获取Git记录中被修改的文件列表（不包含"3rd"目录）
-modified_files=$(git status --porcelain | awk '{print $2}' | grep -v "build" | grep -v "cmake-build-debug" | grep -v "Thirdparty" | grep -v "Vocabulary" | grep -v "Examples" | grep -v "Examples_old" | grep -v "evaluation" | grep -v "lib")
+modified_files=$(git status --porcelain | awk '{print $2}' | grep -v "build" | grep -v "cmake-build-debug" | grep -v "Thirdparty" | grep -v "Vocabulary" | grep -v "Examples_old" | grep -v "evaluation" | grep -v "lib")
 
 # 支持的C++文件类型
 cpp_types=("h" "c" "hpp" "cc" "cpp" "tpp")

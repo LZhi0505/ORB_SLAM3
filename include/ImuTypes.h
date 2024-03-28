@@ -41,8 +41,7 @@ const float GRAVITY_VALUE = 9.81;
 
 // IMU measurement (gyro, accelerometer and timestamp)
 /**
- * 指代一个IMU测量数据：加速度、角速度及所对应的时间戳
- * 其构造函数有两个形式，其都是构造一个imu的测量数据的
+ * 一个IMU测量数据：加速度、角速度、对应的时间戳
  */
 class Point {
 public:
@@ -116,8 +115,8 @@ public:
 
 public:
     // Sophus/Eigen implementation
-    Sophus::SE3<float> mTcb;                      // imu到相机的变换矩阵
-    Sophus::SE3<float> mTbc;                      // 相机到imu的变换矩阵
+    Sophus::SE3<float> mTcb;                      // IMU到相机的变换矩阵
+    Sophus::SE3<float> mTbc;                      // 相机到IMU的变换矩阵
     Eigen::DiagonalMatrix<float, 6> Cov, CovWalk; // 误差的协方差、随机游走(零偏)的协方差矩阵    （协方差矩阵是用来算信息矩阵的!!!)
     bool mbIsSet;
 };

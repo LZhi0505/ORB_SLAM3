@@ -1275,10 +1275,10 @@ bool Tracking::GetStepByStep() { return bStepByStep; }
 
 /**
  * 双目跟踪
- * @param imRectLeft    左目图像
- * @param imRectRight   右目图像
- * @param timestamp     时间戳
- * @param filename      左目文件路径
+ * @param imRectLeft    左目图像（极线矫正、调整大小后的）
+ * @param imRectRight   右目图像（极线矫正、调整大小后的）
+ * @param timestamp     图片时间戳
+ * @param filename      左目图片路径（IMU模式下为空）
  * @return
  */
 Sophus::SE3f Tracking::GrabImageStereo(const cv::Mat &imRectLeft, const cv::Mat &imRectRight, const double &timestamp, string filename) {
@@ -1289,7 +1289,6 @@ Sophus::SE3f Tracking::GrabImageStereo(const cv::Mat &imRectLeft, const cv::Mat 
     mImRight = imRectRight;
 
     if (mImGray.channels() == 3) {
-        // cout << "Image with 3 channels" << endl;
         // 配置文件中指定图像格式为RGB, 则以RGB格式读取图像
         if (mbRGB) {
             cvtColor(mImGray, mImGray, cv::COLOR_RGB2GRAY);
@@ -1299,7 +1298,6 @@ Sophus::SE3f Tracking::GrabImageStereo(const cv::Mat &imRectLeft, const cv::Mat 
             cvtColor(imGrayRight, imGrayRight, cv::COLOR_BGR2GRAY);
         }
     } else if (mImGray.channels() == 4) {
-        // cout << "Image with 4 channels" << endl;
         if (mbRGB) {
             cvtColor(mImGray, mImGray, cv::COLOR_RGBA2GRAY);
             cvtColor(imGrayRight, imGrayRight, cv::COLOR_RGBA2GRAY);
@@ -1309,7 +1307,7 @@ Sophus::SE3f Tracking::GrabImageStereo(const cv::Mat &imRectLeft, const cv::Mat 
         }
     }
 
-    // 构建帧
+    // 构建一帧
     // PinHole 双目 (未提供Camera2)
     if (mSensor == System::STEREO && !mpCamera2)
         mCurrentFrame = Frame(mImGray, imGrayRight, timestamp, mpORBextractorLeft, mpORBextractorRight, mpORBVocabulary, mK, mDistCoef, mbf, mThDepth, mpCamera);
@@ -1334,9 +1332,7 @@ Sophus::SE3f Tracking::GrabImageStereo(const cv::Mat &imRectLeft, const cv::Mat 
     vdStereoMatch_ms.push_back(mCurrentFrame.mTimeStereoMatch);
 #endif
 
-    // cout << "Tracking start" << endl;
     Track();
-    // cout << "Tracking end" << endl;
 
     std::cout << "\t\tcur_id: " << mCurrentFrame.mnId << ", 地图库关键帧个数: " << mpAtlas->GetAllKeyFrames().size() << ", 地图点个数: " << mpAtlas->GetAllMapPoints().size() << std::endl;
     // 保存每帧位姿
@@ -1487,7 +1483,7 @@ Sophus::SE3f Tracking::GrabImageMonocular(const cv::Mat &im, const double &times
 
 /**
  * @brief 将两帧间的IMU测量数据存放在list链表类型的 mlQueueImuData 里
- * @param[in] imuMeasurement IMU测量值
+ * @param[in] imuMeasurement IMU测量数据
  */
 void Tracking::GrabImuData(const IMU::Point &imuMeasurement) {
     unique_lock<mutex> lock(mMutexImuQueue);
@@ -1495,29 +1491,29 @@ void Tracking::GrabImuData(const IMU::Point &imuMeasurement) {
 }
 
 /**
- * @brief 对上一帧与当前帧 进行IMU预积分
- * 对于一个帧有两种预积分，一种是相对于上一帧，一种是相对于上一个关键帧
+ * @brief 对上一帧到当前帧的IMU数据 进行预积分（有两种预积分，一种是相对于上一帧，一种是相对于上一个关键帧）
  */
 void Tracking::PreintegrateIMU() {
-    // Step 1: 获取两帧之间待处理的预积分数据，组成一个集合
-    // 上一帧不存在, 说明两帧之间没有IMU数据，不进行预积分，并将IMU预积分状态置为true
+    // Step 1: 获取两帧之间的IMU数据，组成一个集合
+    // 上一帧不存在, 说明两帧之间没有IMU数据，不进行预积分，将IMU预积分状态置为true，返回
     if (!mCurrentFrame.mpPrevFrame) {
         Verbose::PrintMess("non prev frame ", Verbose::VERBOSITY_NORMAL);
-        // 设置当前帧已做完预积分 mbImuPreintegrated = true;
-        mCurrentFrame.setIntegrated();
+        mCurrentFrame.setIntegrated(); // 设置当前帧已做完预积分 mbImuPreintegrated = true;
         return;
     }
     // 上一帧存在
 
     mvImuFromLastFrame.clear();
     mvImuFromLastFrame.reserve(mlQueueImuData.size());
-    // 没有IMU数据，不进行预积分，并将IMU预积分状态置为true
+
+    // 没有IMU数据，不进行预积分，将IMU预积分状态置为true
     if (mlQueueImuData.size() == 0) {
         Verbose::PrintMess("Not IMU data in mlQueueImuData!!", Verbose::VERBOSITY_NORMAL);
         mCurrentFrame.setIntegrated();
         return;
     }
     // 上一帧存在，且mlQueueImuData中有IMU数据
+
     while (true) {
         // 数据还没有时, 会等待一段时间, 直到mlQueueImuData中有IMU数据。一开始不需要等待
         bool bSleep = false;
@@ -1723,25 +1719,24 @@ void Tracking::ResetFrameIMU() {
  * Step 3：记录位姿信息，用于轨迹复现
  */
 void Tracking::Track() {
-    if (bStepByStep) // 如果处于“逐步”模式，即需要逐步执行
-    {
+    // 如果处于“逐步”模式，即需要逐步执行
+    if (bStepByStep) {
         std::cout << "Tracking: Waiting to the next step" << std::endl;
         while (!mbStep && bStepByStep)
             usleep(500);
         mbStep = false;
     }
 
-    // Step 1：如局部建图里认为IMU有问题，重置当前活跃地图
-    if (mpLocalMapper->mbBadImu) // 检查局部地图是否设置了坏的IMU标志。如果是，重置当前活动的地图，然后返回。
-    {
+    // Step 1：检查Local Mapping线程认为IMU有问题，则重置当前活跃地图，然后返回
+    if (mpLocalMapper->mbBadImu) {
         cout << "TRACK: Reset map because local mapper set the bad IMU flag " << endl;
         mpSystem->ResetActiveMap();
         return;
     }
 
-    // 从 Atlas 中取出当前active的地图 pCurrentMap
-    Map *pCurrentMap = mpAtlas->GetCurrentMap(); // 获取当前活跃地图 pCurrentMap
-    // 检查是否存在活跃地图
+    // 获取当前活跃地图 pCurrentMap
+    Map *pCurrentMap = mpAtlas->GetCurrentMap();
+    // 检查该活跃地图是否存在
     if (!pCurrentMap) {
         cout << "ERROR: There is not an active map in the atlas" << endl;
     }
@@ -1749,55 +1744,58 @@ void Tracking::Track() {
     // Step 2：处理时间戳异常的情况
     // 如果系统不是刚刚开始的状态，则进行一系列 时间戳 和 帧ID 的检查，以处理时间戳错误和丢失的情况，最后返回，中断当前帧的处理
     if (mState != NO_IMAGES_YET) {
-        // 当前时间戳 < 上一帧时间戳，出现错误，清除imu数据，创建新的子地图，返回
+        // 当前时间戳 < 上一帧时间戳，出现错误
         if (mLastFrame.mTimeStamp > mCurrentFrame.mTimeStamp) {
             cerr << "ERROR: Frame with a timestamp older than previous frame detected!" << endl;
             unique_lock<mutex> lock(mMutexImuQueue);
-            mlQueueImuData.clear(); // 清空IMU队列
-            CreateMapInAtlas();     // 创建新地图
+            mlQueueImuData.clear(); // 清空IMU数据队列
+            CreateMapInAtlas();     // 创建新的子地图
             return;
         }
-        // 当前时间戳 > 上一帧时间戳 + 1秒，检测到时间戳跳变，重置地图，返回
+        // 当前时间戳 > 上一帧时间戳 + 1秒，时间戳跳变，重置地图或新建子地图，返回
         else if (mCurrentFrame.mTimeStamp > mLastFrame.mTimeStamp + 1.0) {
-            // cout << mCurrentFrame.mTimeStamp << ", " << mLastFrame.mTimeStamp << endl;
-            // cout << "id last: " << mLastFrame.mnId << "    id curr: " << mCurrentFrame.mnId << endl;
-            // 根据是否是 IMU 模式,进行 IMU 的补偿
-            // 如果系统处于 IMU模式
+            // IMU模式
             if (mpAtlas->isInertial()) {
-                // 如果IMU已经初始化，说明时间戳跳跃可能是由于数据丢失或错误引起的，置状态为 丢失，并重置或创建新的地图
+
+                // IMU已初始化，说明时间戳跳变可能是由于数据丢失或错误引起的
                 if (mpAtlas->isImuInitialized()) {
                     cout << "Timestamp jump detected. State set to LOST. Reseting IMU integration..." << endl;
-                    // IMU完成第3次初始化（在localmapping线程里）
+                    // IMU未完成第3次初始化，则重置地图
                     if (!pCurrentMap->GetIniertialBA2()) {
-                        mpSystem->ResetActiveMap(); // 如果当前子图中imu没有经过BA2，重置active地图，也就是之前的数据不要了
-                    } else {
-                        CreateMapInAtlas(); // 如果当前子图中imu进行了BA2，重新创建新的子图，保存当前地图
+                        mpSystem->ResetActiveMap();
+                    }
+                    // 若已完成，则创建新的子地图，保存当前地图
+                    else {
+                        CreateMapInAtlas();
                     }
                 }
-                // 如果IMU未初始化，说明时间戳跳变可能是在IMU初始化之前发生的。重置当前活动的地图，以防止在未初始化的情况下跟踪不准确的状态，返回
+                // IMU未初始化，时间戳跳变是在IMU初始化之前发生的，则重置当前活动地图，返回
                 else {
                     cout << "Timestamp jump detected, before IMU initialization. Reseting..." << endl;
                     mpSystem->ResetActiveMap();
                 }
+
                 return;
             }
         }
     }
 
     // Step 3：IMU模式 且 上一关键帧 存在，则将上一关键帧的IMU零偏 赋予 当前帧
-    // IMU零偏：IMU传感器测量数据中的固有误差，如加速度计和陀螺仪的零漂。由于这些误差可能会对IMU数据的精度和稳定性产生影响，因此在SLAM系统中，通常会使用关键帧的IMU零偏 来校准和纠正
+    // IMU零偏：IMU传感器测量数据中的固有误差，如加速度计和陀螺仪的零偏。由于这些误差可能会对IMU数据的精度和稳定性产生影响，因此在SLAM系统中，通常会使用关键帧的IMU零偏 来校准和纠正
     // 当前帧的IMU数据，从而提高SLAM系统的性能和稳定性
-    if ((mSensor == System::IMU_MONOCULAR || mSensor == System::IMU_STEREO || mSensor == System::IMU_RGBD) && mpLastKeyFrame)
+    if ((mSensor == System::IMU_MONOCULAR || mSensor == System::IMU_STEREO || mSensor == System::IMU_RGBD) && mpLastKeyFrame) {
         mCurrentFrame.SetNewBias(mpLastKeyFrame->GetImuBias());
+    }
 
     // 如果系统刚刚启动，置状态为 未初始化，在后续操作中进行初始化
     if (mState == NO_IMAGES_YET) {
         mState = NOT_INITIALIZED;
     }
+
     // 更新系统上一帧状态。后续可以比较当前帧和上一帧的状态，判断系统状态是否发生了变化或执行特定的逻辑
     mLastProcessedState = mState;
 
-    // Step 4：IMU预积分，当为IMU模式 且 未创建地图时进行
+    // Step 4：IMU预积分（IMU模式 且 未创建地图时）
     if ((mSensor == System::IMU_MONOCULAR || mSensor == System::IMU_STEREO || mSensor == System::IMU_RGBD) && !mbCreatedMap) {
 #ifdef REGISTER_TIMES
         std::chrono::steady_clock::time_point time_StartPreIMU = std::chrono::steady_clock::now();
@@ -1817,8 +1815,7 @@ void Tracking::Track() {
     mbCreatedMap = false;
 
     // 使用互斥锁（mutex）来保护对地图的并发访问，确保同一时间只有一个线程可以访问地图。保证地图不会发生变化
-    // 疑问:这样子会不会影响地图的实时更新?
-    // 回答：主要耗时在构造帧中特征点的提取和匹配部分,在那个时候地图是没有被上锁的,有足够的时间更新地图
+    // 疑问:这样子会不会影响地图的实时更新? 回答：主要耗时在构造帧中特征点的提取和匹配部分,在那个时候地图是没有被上锁的,有足够的时间更新地图
     unique_lock<mutex> lock(pCurrentMap->mMutexMapUpdate);
 
     // 地图未被更新
@@ -1833,28 +1830,26 @@ void Tracking::Track() {
         mbMapUpdated = true;                               // 检测到地图更新了
     }
 
-    // Step 5：进行初始化。若初始化成功，则状态 mState = OK
+    // Step 5：初始化。若初始化成功，则状态 mState = OK
     if (mState == NOT_INITIALIZED) {
-        // 根据不同的传感器类型 进行不同的初始化操作
-        // 立体、RGB-D、IMU+立体、IMU+RGB-D初始化
+        // 双目/双目+IMU、RGB-D/RGB-D+IMU，只需1帧
         if (mSensor == System::STEREO || mSensor == System::RGBD || mSensor == System::IMU_STEREO || mSensor == System::IMU_RGBD) {
             Verbose::PrintMess("INITIALIZE: Frame " + std::to_string(mCurrentFrame.mnId) + "，双目或RGB-D初始化...", Verbose::VERBOSITY_DEBUG);
-            StereoInitialization(); // 双目初始化，只需1帧
+            StereoInitialization();
         }
-        // 单目初始化：初始化的两张图像必须有一定程度的平移，之后的轨迹都以此平移为单位。通常选择让相机进行左右平移进行初始化，初始化时不能纯旋转
+        // 单目，需要至少2帧，且初始化的两张图像必须有一定程度的平移，之后的轨迹都以此平移为单位。通常选择让相机进行左右平移进行初始化，不能纯旋转
         else {
             Verbose::PrintMess("INITIALIZE: Frame " + std::to_string(mCurrentFrame.mnId) + "，单目初始化...", Verbose::VERBOSITY_DEBUG);
-            MonocularInitialization(); // 单目初始化，需要至少2帧
-            //            Verbose::PrintMess("\t\t\t\t初始化后状态 mState = " + std::to_string(mState) + " (-1: SYSTEM_NOT_READY, 0: NO_IMAGES_YET, 1: NOT_INITIALIZED, 2: OK, 3: RECENTLY_LOST, 4:
-            //            LOST", Verbose::VERBOSITY_DEBUG);
+            MonocularInitialization();
         }
+        // 初始化后的状态：-1: SYSTEM_NOT_READY, 0: NO_IMAGES_YET, 1: NOT_INITIALIZED, 2: OK, 3: RECENTLY_LOST, 4: LOST
 
         // mpFrameDrawer->Update(this);
 
         // 如果初始化失败，则将当前帧置为上一帧，直接返回
         if (mState != OK) {
             Verbose::PrintMess("\t初始化失败，下一帧继续初始化", Verbose::VERBOSITY_DEBUG);
-            mLastFrame = Frame(mCurrentFrame); // 将 当前帧 置为 上一帧，以便在下一次迭代中继续尝试初始化
+            mLastFrame = Frame(mCurrentFrame); // 下一次迭代中继续初始化
             return;
         }
 
@@ -1862,49 +1857,43 @@ void Tracking::Track() {
 
         // 如果当前地图是第一个地图，记录当前帧 ID 为第一帧 mnFirstFrameId
         if (mpAtlas->GetAllMaps().size() == 1) {
-            mnFirstFrameId = mCurrentFrame.mnId; // 在跟踪过程中，当需要判断是否需要创建新的关键帧时，可以将当前帧的帧号与 mnFirstFrameId 进行比较，以确定是否需要创建新的关键帧。
+            mnFirstFrameId = mCurrentFrame.mnId; // 在跟踪过程中，当需要判断是否需要创建新的关键帧时，可以将当前帧的ID与 mnFirstFrameId 进行比较，以确定是否需要创建新的关键帧。
         }
     }
-    // Step 6：系统已成功初始化，跟踪当前帧
+    // Step 6：系统已完成初始化，则跟踪当前帧
     else {
-        //----------------开始第一步跟踪，帧匹配---------------------
+        //----------------开始第一步跟踪，帧匹配，初步估计相机的位姿---------------------
         bool bOK; // 当前帧跟踪状态
 
 #ifdef REGISTER_TIMES
         std::chrono::steady_clock::time_point time_StartPosePred = std::chrono::steady_clock::now(); // 位姿估计开始时间
 #endif
 
-        // 初步估计相机的位姿
-        // mbOnlyTracking = false 表示SLAM模式（定位 + 地图更新），mbOnlyTracking = true表示纯定位模式
+        // mbOnlyTracking = false 表示SLAM模式（定位 + 建图），mbOnlyTracking = true表示纯定位模式
         // tracking 类构造时默认为 false。在 viewer 中有个开关 ActivateLocalizationMode，可以控制是否开启 mbOnlyTracking
         if (!mbOnlyTracking) {
-            // 处于 SLAM模式，既 跟踪 又 局部建图，有地图更新
             Verbose::PrintMess("   SLAM模式", Verbose::VERBOSITY_VERBOSE);
 
-            // 如果正常跟踪
+            // 跟踪状态正常
             if (mState == OK) {
-                // Local Mapping might have changed some MapPoints tracked in last frame
-                // Step 6.1 检查并更新上一帧被替换的MapPoints。局部建图线程可能会对原有的地图点 MapPoints 进行替换
+                // Step 6.1 局部建图线程可能会对 上一帧跟踪到的地图点更改，需检查并更新
                 CheckReplacedInLastFrame();
 
                 int num_landmark = std::count_if(mCurrentFrame.mvpMapPoints.begin(), mCurrentFrame.mvpMapPoints.end(), [](MapPoint *pMp) { return pMp != static_cast<MapPoint *>(NULL); });
                 Verbose::PrintMess("   [vio] cur_frm landmark size: " + std::to_string(num_landmark), Verbose::VERBOSITY_DEBUG);
 
-                // Step 6.2 运动模型是无效 且 IMU未初始化 或 刚完成重定位，则跟踪参考关键帧；否则恒速模型跟踪
-                // 条件1：如果运动模型无效 且 IMU未初始化,说明是刚开始第一帧跟踪，或者已经跟丢了。
-                // 条件2：如果当前帧紧跟着在重定位的帧的后面，我们用重定位帧来恢复位姿
-                if ((!mbVelocity && !pCurrentMap->isImuInitialized()) || mCurrentFrame.mnId < mnLastRelocFrameId + 2) // mnLastRelocFrameId 上一次重定位的那一帧
-                {
+                // Step 6.2 速度无效 且 IMU未初始化 或 重定位后的1帧，则参考关键帧跟踪；否则恒速运行模型跟踪
+                // 条件1：速度无效 且 IMU未初始化，说明是时第一帧的跟踪，或前面已经跟丢了；
+                // 条件2：当前帧是重定位后的1帧，则用重定位成功的那帧来恢复位姿
+                if ((!mbVelocity && !pCurrentMap->isImuInitialized()) || mCurrentFrame.mnId < mnLastRelocFrameId + 2) { // mnLastRelocFrameId 上一次重定位的那一帧
                     Verbose::PrintMess("\t参考关键帧跟踪...", Verbose::VERBOSITY_VERBOSE);
-                    // 用词袋和关键帧进行匹配
                     bOK = TrackReferenceKeyFrame();
                 }
-                // 有速度模型 或 IMU已初始化，则先使用 恒速运动模型进行跟踪；如果跟踪失败，再跟踪参考关键帧
+                // 有速度 或 IMU已初始化，则先使用 恒速运动模型进行跟踪；如果跟踪失败，再跟踪参考关键帧
                 else {
                     Verbose::PrintMess("\t恒速运动模型跟踪...", Verbose::VERBOSITY_VERBOSE);
                     // 使用恒速模型和上一帧进行匹配。所谓的恒速就是假设上上帧到上一帧的位姿 = 上一帧的位姿到当前帧位姿
-                    // 根据恒速模型设定当前帧的初始位姿，用最近的普通帧来跟踪当前的普通帧
-                    // 通过投影的方式在参考帧中找当前帧特征点的匹配点，优化每个特征点所对应3D点的投影误差即可得到位姿
+                    // 根据恒速模型设定当前帧的初始位姿，通过投影的方式在上一帧中找到当前帧特征点的匹配点，优化每个特征点所对应3D点的投影误差即可得到优化后的位姿
                     bOK = TrackWithMotionModel();
 
                     if (!bOK) {
@@ -1913,17 +1902,13 @@ void Tracking::Track() {
                     }
                 }
 
-                // Step 6.3 如果经过跟踪参考关键帧、恒速模型跟踪都失败的话，并满足一定条件就要标记为 RECENTLY_LOST 或 LOST
+                // 第一阶段跟踪失败：踪参考关键帧、恒速模型跟踪都失败，根据情况标记为 RECENTLY_LOST 或 LOST
                 if (!bOK) {
-                    // 条件1：如果当前帧 距离 上次重定位成功 < 1s (mnFramesToResetIMU 表示经过多少帧后可以重置IMU，一般设置为和帧率相同，对应的时间是1s)
-                    // 条件2：IMU模式
-                    // 同时满足条件1，2，标记为LOST
+                    // IMU模式 且 当前帧 距离 上次重定位成功 <= 1s，标记为LOST
                     if (mCurrentFrame.mnId <= (mnLastRelocFrameId + mnFramesToResetIMU) && (mSensor == System::IMU_MONOCULAR || mSensor == System::IMU_STEREO || mSensor == System::IMU_RGBD)) {
                         mState = LOST;
                     }
-                    // 条件1：当前地图中关键帧数目较多（ > 10）
-                    // 条件2（隐藏条件）：当前帧 距离上次重定位帧 > 1s（说明还比较争气，值的救）或 非IMU模式
-                    // 同时满足条件1，2，则将状态标记为 RECENTLY_LOST，表明在短时间内跟丢，后面会结合IMU预测的位姿看看能不能拽回来
+                    // (非IMU模式 或 当前帧 距离上次重定位帧 > 1s) 且 当前地图中关键帧个数 > 10，则状态标记为 RECENTLY_LOST，表明在短时间内跟丢，后面会结合IMU预测的位姿看看能不能拽回来
                     else if (pCurrentMap->KeyFramesInMap() > 10) {
                         mState = RECENTLY_LOST;
                         mTimeStampLost = mCurrentFrame.mTimeStamp; // 记录丢失时间
@@ -1931,33 +1916,34 @@ void Tracking::Track() {
                         mState = LOST;
                     }
                     Verbose::PrintMess("\tFailed: 帧匹配失败，mState = " + std::to_string(mState) + ", bOK = " + std::to_string(bOK), Verbose::VERBOSITY_VERBOSE);
-                } else {
+                }
+                // 第一阶段跟踪成功
+                else {
                     Verbose::PrintMess("\tSucceed: 帧匹配成功，mState = " + std::to_string(mState) + ", bOK = " + std::to_string(bOK), Verbose::VERBOSITY_DEBUG);
                 }
             }
-            //  跟踪不正常，mState != OK。按照下面处理
+            //  跟踪状态不正常，mState != OK
             else {
-                // 短时间内丢失跟踪
+                // RECENTLY_LOST状态，再挣扎一下，用IMU估计位姿 或 使用重定位
                 if (mState == RECENTLY_LOST) {
-                    //                    Verbose::PrintMess("Lost for a short time", Verbose::VERBOSITY_NORMAL);
                     Verbose::PrintMess("\t上一帧短时间内丢失，RECENTLY_LOST", Verbose::VERBOSITY_VERBOSE);
-                    // bOK先置为true
-                    bOK = true;
+                    bOK = true; // 先置为true
 
-                    // 如果是IMU模式，可以用IMU来预测位姿，看能否拽回来
+                    // IMU模式，可以用IMU估计位姿，看能否拽回来
                     if ((mSensor == System::IMU_MONOCULAR || mSensor == System::IMU_STEREO || mSensor == System::IMU_RGBD)) {
                         Verbose::PrintMess("\t处于IMU模式", Verbose::VERBOSITY_VERBOSE);
-                        // Step 6.4 如果当前地图中IMU已经成功初始化，就用IMU数据预测位姿
+                        // Step 6.4 IMU已初始化，则估计
                         if (pCurrentMap->isImuInitialized()) {
                             Verbose::PrintMess("\t\tIMU已初始化，使用IMU数据预测相机状态...", Verbose::VERBOSITY_VERBOSE);
                             PredictStateIMU();
-                        } else {
+                        }
+                        // IMU未初始化，则不能估计，置为false
+                        else {
                             Verbose::PrintMess("\t\tIMU未初始化，bOK = " + std::to_string(bOK), Verbose::VERBOSITY_VERBOSE);
                             bOK = false;
                         }
 
-                        // IMU模式 且 当前帧 距离 跟丢帧超过5s，还没有找回（time_recently_lost默认为5s）
-                        // 放弃了，将状态 mState = LOST，跟踪失败 bOK = false
+                        // IMU模式 且 当前帧 距离 跟丢帧>5s，还没有找回，则放弃，状态 mState = LOST，跟踪失败 bOK = false
                         if (mCurrentFrame.mTimeStamp - mTimeStampLost > time_recently_lost) {
                             mState = LOST;
                             bOK = false;
@@ -1965,7 +1951,7 @@ void Tracking::Track() {
                                                Verbose::VERBOSITY_NORMAL);
                         }
                     }
-                    // Step 6.5 纯视觉模式则进行重定位。主要是BOW搜索，EPnP求解位姿
+                    // Step 6.5 纯视觉，则重定位。主要是BOW搜索，EPnP求解位姿
                     else {
                         Verbose::PrintMess("\t\t纯视觉模式，进行重定位...", Verbose::VERBOSITY_VERBOSE);
                         bOK = Relocalization();
@@ -1975,7 +1961,6 @@ void Tracking::Track() {
 
                         // 如果重定位失败 且 当前帧时间戳 - 丢失时间 > 3s，则状态 mState = LOST，跟踪失败 bOK = false
                         if (!bOK && mCurrentFrame.mTimeStamp - mTimeStampLost > 3.0f) {
-                            // 纯视觉模式下重定位失败，状态为LOST
                             mState = LOST;
                             Verbose::PrintMess("\t\tFailed: 重定位一直失败，且跟踪丢失超过 3s，Track Lost... mState = " + std::to_string(mState) + ", bOK = " + std::to_string(bOK),
                                                Verbose::VERBOSITY_NORMAL);
@@ -1983,11 +1968,11 @@ void Tracking::Track() {
                         }
                     }
                 }
-                // Step 6.6 LOST状态。长时间丢失，则重置活跃地图或创建一个新地图，并清空最后一个关键帧，然后返回
+                // Step 6.6 LOST状态，说明上面的操作失败，且长时间丢失，则重置活跃地图或创建新的子地图，并清空最后一个关键帧，然后返回
                 else if (mState == LOST) {
                     Verbose::PrintMess("\t上一帧长时间跟踪丢失，LOST", Verbose::VERBOSITY_VERBOSE);
                     Verbose::PrintMess("\t\t创建一个新地图，A new map is started...", Verbose::VERBOSITY_NORMAL);
-                    // 当前地图中关键帧数量 < 10，则重置当前地图
+                    // 当前地图中关键帧个数 < 10，则重置当前地图
                     if (pCurrentMap->KeyFramesInMap() < 10) {
                         mpSystem->ResetActiveMap();
                         Verbose::PrintMess("\t\t地图中关键帧数量: " + std::to_string(pCurrentMap->KeyFramesInMap()) + " < 10，重置当前地图，Reseting current map...", Verbose::VERBOSITY_NORMAL);
@@ -2007,8 +1992,8 @@ void Tracking::Track() {
                     return;
                 }
             }
-        } // SLAM模式结束
-        // 纯定位模式，只进行跟踪 tracking，局部地图不工作
+        }
+        // 纯定位模式，只进行跟踪，不建图
         else {
             Verbose::PrintMess("   纯定位模式", Verbose::VERBOSITY_VERBOSE);
             // Localization Mode: Local Mapping is deactivated (TODO Not available in inertial mode)
@@ -3714,8 +3699,8 @@ void Tracking::CreateNewKeyFrame() {
 
     // 这段代码和 Tracking::UpdateLastFrame 中的那一部分代码功能相同
     // Step 3：双目、双目+IMU、RGBD、RGBD+IMU，为当前帧生成新的地图点；单目无操作
-    if (mSensor != System::MONOCULAR && mSensor != System::IMU_MONOCULAR) // TODO check if include imu_stereo
-    {
+    // TODO check if include imu_stereo
+    if (mSensor != System::MONOCULAR && mSensor != System::IMU_MONOCULAR) {
         // 根据 Tcw计算mRcw、mtcw 和 mRwc、mOw
         mCurrentFrame.UpdatePoseMatrices();
         // cout << "create new MPs" << endl;

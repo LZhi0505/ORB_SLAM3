@@ -101,34 +101,33 @@ Frame::Frame(const Frame &frame)
 
 /**
  * @brief PinHole相机 双目（未提供Camera2）
- * @param imLeft
- * @param imRight
- * @param timeStamp
- * @param extractorLeft
+ * @param imLeft    左目图片
+ * @param imRight   右目图片
+ * @param timeStamp 图片时间戳
+ * @param extractorLeft 左目特征提取器
  * @param extractorRight
  * @param voc
- * @param K
- * @param distCoef
+ * @param K 内参矩阵
+ * @param distCoef  畸变参数
  * @param bf
- * @param thDepth
- * @param pCamera
+ * @param thDepth   深度阈值系数
+ * @param pCamera   相机模型
  * @param pPrevF
- * @param ImuCalib
+ * @param ImuCalib  IMU外参
  */
 Frame::Frame(const cv::Mat &imLeft, const cv::Mat &imRight, const double &timeStamp, ORBextractor *extractorLeft, ORBextractor *extractorRight, ORBVocabulary *voc, cv::Mat &K, cv::Mat &distCoef,
              const float &bf, const float &thDepth, GeometricCamera *pCamera, Frame *pPrevF, const IMU::Calib &ImuCalib)
     : mpcpi(NULL), mpORBvocabulary(voc), mpORBextractorLeft(extractorLeft), mpORBextractorRight(extractorRight), mTimeStamp(timeStamp), mK(K.clone()), mK_(Converter::toMatrix3f(K)),
       mDistCoef(distCoef.clone()), mbf(bf), mThDepth(thDepth), mImuCalib(ImuCalib), mpImuPreintegrated(NULL), mpPrevFrame(pPrevF), mpImuPreintegratedFrame(NULL),
       mpReferenceKF(static_cast<KeyFrame *>(NULL)), mbIsSet(false), mbImuPreintegrated(false), mpCamera(pCamera), mpCamera2(nullptr), mbHasPose(false), mbHasVelocity(false) {
-    std::cout << std::endl << "构建帧（双目 立体匹配模式，未提供Camera2，相机模型为PinHole）" << endl;
+
+    std::cout << std::endl << "构建帧（PinHole 双目，未提供Camera2）" << endl;
     imgLeft = imLeft.clone();
     imgRight = imRight.clone();
 
-    // Frame ID
     // Step 1：帧ID的自增
     mnId = nNextId++;
 
-    // Scale Level Info
     // Step 2：计算图像金字塔的参数
     mnScaleLevels = mpORBextractorLeft->GetLevels();                      // 获取图像金字塔的层数
     mfScaleFactor = mpORBextractorLeft->GetScaleFactor();                 // 获得层与层之间的缩放比
@@ -138,17 +137,16 @@ Frame::Frame(const cv::Mat &imLeft, const cv::Mat &imRight, const double &timeSt
     mvLevelSigma2 = mpORBextractorLeft->GetScaleSigmaSquares();           // 高斯模糊的时候，使用的方差
     mvInvLevelSigma2 = mpORBextractorLeft->GetInverseScaleSigmaSquares(); // 获取sigma^2的倒数
 
-    // ORB extraction
 #ifdef REGISTER_TIMES
     std::chrono::steady_clock::time_point time_StartExtORB = std::chrono::steady_clock::now();
 #endif
-    // Step 3：对左目右目图像提取ORB特征点, 第一个参数0-左图， 1-右图。为加速计算，同时开了两个线程计算
+    // Step 3：提取左、右目的ORB特征点（第一个参数0-左图， 1-右图）。为加速计算，同时开了两个线程计算
     //    thread threadLeft(&Frame::ExtractORB, this, 0, imLeft, 0, 0);    // 对左目图像提取orb特征
     //    thread threadRight(&Frame::ExtractORB, this, 1, imRight, 0, 0);  // 对右目图像提取orb特征
     //    // 等待两张图像特征点提取过程完成
     //    threadLeft.join();
     //    threadRight.join();
-    // liuzhi改为顺序执行
+    // 改为顺序执行
     ExtractORB(0, imLeft, 0, 0);
     ExtractORB(1, imRight, 0, 0);
 #ifdef REGISTER_TIMES
@@ -1343,7 +1341,7 @@ bool Frame::imuIsPreintegrated() {
 }
 
 /**
- * @brief 设置 当前帧已做完预积分
+ * @brief 设置 当前帧是否已做完预积分
  */
 void Frame::setIntegrated() {
     unique_lock<std::mutex> lock(*mpMutexImu);
