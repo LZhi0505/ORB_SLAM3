@@ -448,13 +448,13 @@ void Settings::readImageInfo(cv::FileStorage &fSettings) {
 // 读取IMU参数
 void Settings::readIMU(cv::FileStorage &fSettings) {
     bool found;
-    noiseGyro_ = readParameter<float>(fSettings, "IMU.NoiseGyro", found); // 角速度白噪声
-    noiseAcc_ = readParameter<float>(fSettings, "IMU.NoiseAcc", found);   // 加速度白噪声
-    gyroWalk_ = readParameter<float>(fSettings, "IMU.GyroWalk", found);   // 角速度 walk
-    accWalk_ = readParameter<float>(fSettings, "IMU.AccWalk", found);     // 加速度 walk
+    noiseGyro_ = readParameter<float>(fSettings, "IMU.NoiseGyro", found); // 角速度噪声
+    noiseAcc_ = readParameter<float>(fSettings, "IMU.NoiseAcc", found);   // 加速度噪声
+    gyroWalk_ = readParameter<float>(fSettings, "IMU.GyroWalk", found);   // 角速度 随机游走（对应零偏）
+    accWalk_ = readParameter<float>(fSettings, "IMU.AccWalk", found);     // 加速度 随机游走
     imuFrequency_ = readParameter<float>(fSettings, "IMU.Frequency", found);
 
-    cv::Mat cvTbc = readParameter<cv::Mat>(fSettings, "IMU.T_b_c1", found);
+    cv::Mat cvTbc = readParameter<cv::Mat>(fSettings, "IMU.T_b_c1", found); // 左目到IMU的变换矩阵
     Tbc_ = Converter::toSophus(cvTbc);
 
     readParameter<int>(fSettings, "IMU.InsertKFsWhenLost", found, false);

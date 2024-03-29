@@ -227,16 +227,13 @@ protected:
     bool mbMapUpdated;
 
     // Imu preintegration from last frame
-    // 上一帧的IMU预积分
-    IMU::Preintegrated *mpImuPreintegratedFromLastKF;
+    IMU::Preintegrated *mpImuPreintegratedFromLastKF;   // 相对于上一关键帧的 IMU预积分器
 
     // Queue of IMU measurements between frames
-    // 两帧间的IMU测量数据
-    std::list<IMU::Point> mlQueueImuData;
+    std::list<IMU::Point> mlQueueImuData;   // 存储从文件中获取的 上一帧到当前帧的IMU测量数据
 
     // Vector of IMU measurements from previous to current frame (to be filled by PreintegrateIMU)
-    //  上一帧到当前帧的IMU测量数据（IMU预积分中会填充）
-    std::vector<IMU::Point> mvImuFromLastFrame;
+    std::vector<IMU::Point> mvImuFromLastFrame; // 筛选完时间戳之后的 上一帧到当前帧的IMU测量数据（IMU预积分中会填充）
     std::mutex mMutexImuQueue;
 
     // Imu calibration parameters

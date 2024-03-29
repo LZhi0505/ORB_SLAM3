@@ -558,9 +558,12 @@ void Frame::SetVelocity(Eigen::Vector3f Vwb) {
 
 Eigen::Vector3f Frame::GetVelocity() const { return mVw; }
 
-/**
- * @brief 赋值位姿与速度
- */
+ /**
+  * 设置当前帧的 位姿Tcw与速度Vw
+  * @param Rwb
+  * @param twb
+  * @param Vwb
+  */
 void Frame::SetImuPoseVelocity(const Eigen::Matrix3f &Rwb, const Eigen::Vector3f &twb, const Eigen::Vector3f &Vwb) {
     mVw = Vwb;
     mbHasVelocity = true;
@@ -570,22 +573,22 @@ void Frame::SetImuPoseVelocity(const Eigen::Matrix3f &Rwb, const Eigen::Vector3f
 
     mTcw = mImuCalib.mTcb * Tbw;
 
+    // mTcw --> Rwc, twc (当前相机光心的世界坐标)
     UpdatePoseMatrices();
+
     mbIsSet = true;
     mbHasPose = true;
 }
 
 /**
- * mTcw -> 相机位姿：世界坐标系到相机坐标坐标系的变换矩阵, 是我们常规理解中的相机位姿
- * 根据 mTcw可以计算出 mOw(当前相机光心在世界坐标系下坐标)，
- *                  mRcw(世界坐标系到相机坐标系的旋转矩阵)，
- *                  mtcw(世界坐标系到相机坐标系的平移向量)，
- *                  mRwc(相机坐标系到世界坐标系的旋转矩阵)。
+ * mTcw --> Rwc, twc (当前相机光心的世界坐标)
  */
 void Frame::UpdatePoseMatrices() {
+
     Sophus::SE3<float> Twc = mTcw.inverse();
     mRwc = Twc.rotationMatrix();
-    mOw = Twc.translation();
+    mOw = Twc.translation();        // 当前相机光心的世界坐标 = twc
+
     mRcw = mTcw.rotationMatrix();
     mtcw = mTcw.translation();
 }
@@ -1068,15 +1071,15 @@ void Frame::ComputeStereoMatches() {
         for (int yi = minr; yi <= maxr; yi++)
             vRowIndices[yi].push_back(iR);
     }
-    std::stringstream ss;
-    for (int i = 0; i < vRowIndices.size(); i++) {
-        ss << "row " << i << ": ";
-        for (int j = 0; j < vRowIndices[i].size(); j++) {
-            ss << vRowIndices[i][j] << " ";
-        }
-        ss << std::endl;
-    }
-    std::cout << ss.str().c_str() << std::endl;
+//    std::stringstream ss;
+//    for (int i = 0; i < vRowIndices.size(); i++) {
+//        ss << "row " << i << ": ";
+//        for (int j = 0; j < vRowIndices[i].size(); j++) {
+//            ss << vRowIndices[i][j] << " ";
+//        }
+//        ss << std::endl;
+//    }
+//    std::cout << ss.str().c_str() << std::endl;
 
     // Step 2 -> 3：粗匹配 + 精匹配
     // 对于立体矫正后的两张图，在列方向(x 横坐标)存在最大视差 maxd 和 最小视差 mind
@@ -1286,7 +1289,7 @@ void Frame::ComputeStereoMatches() {
             mvDepth[vDistIdx[i].second] = -1;
         }
     }
-    Verbose::PrintMess("粗匹配个数: " + std::to_string(num_cu) + ", 精匹配个数: " + std::to_string(num_jing) + ", correlation_thr: " + std::to_string(thDist) +
+    Verbose::PrintMess("\t粗匹配个数: " + std::to_string(num_cu) + ", 精匹配个数: " + std::to_string(num_jing) + ", correlation_thr: " + std::to_string(thDist) +
                            ", num_del: " + std::to_string(num_del) + ", num: " + std::to_string(num_jing - num_del),
                        Verbose::VERBOSITY_DEBUG);
 }
@@ -1312,14 +1315,17 @@ void Frame::ComputeStereoFromRGBD(const cv::Mat &imDepth) {
 }
 
 /**
- * @brief 当某个特征点的深度信息或者双目特征点深度值>0时，计算其在相机坐标系下的三维坐标，并将它反投影到三维世界坐标系中
+ * 当某个特征点的深度信息或者双目特征点深度值>0时，计算其在相机坐标系下的三维坐标，并将它反投影到三维世界坐标系中
+ * @param i 特征点ID
+ * @param x3D 输出 该特征点的世界坐标
+ * @return
  */
 bool Frame::UnprojectStereo(const int &i, Eigen::Vector3f &x3D) {
     const float z = mvDepth[i];
     if (z > 0) {
-        const float u = mvKeysUn[i].pt.x;
+        const float u = mvKeysUn[i].pt.x;   // 像素坐标
         const float v = mvKeysUn[i].pt.y;
-        const float x = (u - cx) * z * invfx;
+        const float x = (u - cx) * z * invfx;   // 世界坐标
         const float y = (v - cy) * z * invfy;
         Eigen::Vector3f x3Dc(x, y, z);
         x3D = mRwc * x3Dc + mOw; // 转换到世界坐标系下的三维坐标

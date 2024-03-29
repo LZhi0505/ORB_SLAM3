@@ -157,7 +157,7 @@ private:
     Eigen::Matrix<float, 3, 1> mOw;
     Eigen::Matrix<float, 3, 3> mRcw;
     Eigen::Matrix<float, 3, 1> mtcw;
-    bool mbHasPose;
+    bool mbHasPose; // 有位姿的标志
 
     // Rcw_ not necessary as Sophus has a method for extracting the rotation matrix: Tcw_.rotationMatrix()
     // tcw_ not necessary as Sophus has a method for extracting the translation vector: Tcw_.translation()
@@ -168,8 +168,8 @@ private:
     Eigen::Vector3f mtlr;
 
     // IMU linear velocity
-    Eigen::Vector3f mVw;
-    bool mbHasVelocity;
+    Eigen::Vector3f mVw;    // IMU线速度
+    bool mbHasVelocity; // 有速度标志
 
 public:
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
@@ -247,12 +247,12 @@ public:
     IMU::Calib mImuCalib;
 
     // Imu preintegration from last keyframe
-    IMU::Preintegrated *mpImuPreintegrated;
+    IMU::Preintegrated *mpImuPreintegrated; // 当前帧相对于 关键帧的 IMU预积分器
     KeyFrame *mpLastKeyFrame;
 
     // Pointer to previous frame
     Frame *mpPrevFrame;
-    IMU::Preintegrated *mpImuPreintegratedFrame;
+    IMU::Preintegrated *mpImuPreintegratedFrame;    // 当前帧相对于 上一帧的 IMU预积分器
 
     // Current and Next Frame id.
     static long unsigned int nNextId;
@@ -304,7 +304,7 @@ private:
 
     bool mbIsSet; // 位姿设置 标志
 
-    bool mbImuPreintegrated; // 当前帧是否已做完预积分
+    bool mbImuPreintegrated; // 当前帧是否做完预积分的 标志
 
     std::mutex *mpMutexImu;
 

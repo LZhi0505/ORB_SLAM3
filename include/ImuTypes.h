@@ -57,7 +57,8 @@ public:
 };
 
 /**
- * IMU 零偏类 (保存加速度和角速度的零偏)
+ * IMU的 零偏类 (保存加速度和角速度的零偏)
+ *
  * 空构造时传入的都是0，否则传来的是加速度的零偏和角速度的零偏
  */
 class Bias {
@@ -84,13 +85,13 @@ public:
     friend std::ostream &operator<<(std::ostream &out, const Bias &b);
 
 public:
-    float bax, bay, baz;
-    float bwx, bwy, bwz;
+    float bax, bay, baz;    // 加速度计 零偏
+    float bwx, bwy, bwz;    // 陀螺仪 零偏
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 };
 
 /**
- * 保存标定好的 IMU外参 (包括Tbc, Tcb, noise)
+ * IMU的标定外参类 (包括Tbc, Tcb, noise)
  */
 class Calib {
     friend class boost::serialization::access;
@@ -105,6 +106,13 @@ class Calib {
     }
 
 public:
+    /**
+     * @param Tbc 左目到IMU的变换矩阵
+     * @param ng 陀螺仪噪声
+     * @param na 加速度计噪声
+     * @param ngw 陀螺仪随机游走
+     * @param naw 加速度计随机游走
+     */
     Calib(const Sophus::SE3<float> &Tbc, const float &ng, const float &na, const float &ngw, const float &naw) { Set(Tbc, ng, na, ngw, naw); }
 
     Calib(const Calib &calib);
@@ -115,9 +123,9 @@ public:
 
 public:
     // Sophus/Eigen implementation
-    Sophus::SE3<float> mTcb;                      // IMU到相机的变换矩阵
-    Sophus::SE3<float> mTbc;                      // 相机到IMU的变换矩阵
-    Eigen::DiagonalMatrix<float, 6> Cov, CovWalk; // 误差的协方差、随机游走(零偏)的协方差矩阵    （协方差矩阵是用来算信息矩阵的!!!)
+    Sophus::SE3<float> mTcb;                      // IMU到左目的变换矩阵
+    Sophus::SE3<float> mTbc;                      // 左目到IMU的变换矩阵
+    Eigen::DiagonalMatrix<float, 6> Cov, CovWalk; // 噪声、随机游走(零偏)的协方差矩阵（6维对角阵，用来算信息矩阵的!!!）
     bool mbIsSet;
 };
 
@@ -207,10 +215,10 @@ public:
     }
 
 public:
-    float dT;                                     // 这一段的总时间
+    float dT;                                     // 两帧之间的总时间
     Eigen::Matrix<float, 15, 15> C;               // 协方差矩阵
     Eigen::Matrix<float, 15, 15> Info;            // 信息矩阵
-    Eigen::DiagonalMatrix<float, 6> Nga, NgaWalk; // 误差、随机游走
+    Eigen::DiagonalMatrix<float, 6> Nga, NgaWalk; // 噪声、随机游走的协方差矩阵（6维对角阵）（一段时间预积分的协方差矩阵）
 
     // Values for the original bias (when integration was computed)
     // 初始零偏 (初始化的时候给的零偏)
@@ -234,7 +242,7 @@ private:
     // 零偏的 增量
     Eigen::Matrix<float, 6, 1> db;
 
-    // 预积分类Preintegrated的一个结构体, 保存了一段时间的实测数据：加速度、角速度、时间间隔
+    // 预积分类的一个数据结构体, 保存了两时刻间的平均加速度、角速度和时间间隔
     struct integrable {
         template <class Archive>
         // 没用
@@ -247,12 +255,11 @@ private:
         EIGEN_MAKE_ALIGNED_OPERATOR_NEW
         integrable() {}
         integrable(const Eigen::Vector3f &a_, const Eigen::Vector3f &w_, const float &t_) : a(a_), w(w_), t(t_) {}
-        Eigen::Vector3f a, w;
-        float t;
+        Eigen::Vector3f a, w;   // 两个IMU时刻间的平均加速度、角速度
+        float t;    // 两时刻间的 时间间隔
     };
 
-    // 这段时间内的所有imu数据
-    std::vector<integrable> mvMeasurements;
+    std::vector<integrable> mvMeasurements; // 存储两帧之间的IMU数据（一个数据包括：平均加速度、角速度、时间间隔）
 
     // 锁
     std::mutex mMutex;

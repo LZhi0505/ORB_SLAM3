@@ -130,20 +130,23 @@ IntegratedRotation::IntegratedRotation(const Eigen::Vector3f &angVel, const Bias
 }
 
 /**
- * @brief 预积分类的构造函数，根据输入的零偏初始化预积分参数
- * 这个主要是把协方差矩阵赋值了。Nga、NgaWalk是Preintegrated类的类内public变量。表示一段时间预积分的协方差矩阵
- * @param b_ 零偏
- * @param calib IMU标定参数的类
+ * @brief 两帧之间的预积分类的构造函数
+ *
+ * 将 协方差矩阵赋值；根据输入的零偏初始化预积分参数
+ * @param b_    上一帧的零偏类（6个值）
+ * @param calib 当前帧的IMU标定参数类（噪声和随机游走）
  */
 Preintegrated::Preintegrated(const Bias &b_, const Calib &calib) {
-    Nga = calib.Cov;
-    NgaWalk = calib.CovWalk;
+    Nga = calib.Cov;    // 噪声的协方差矩阵（6维对角阵）
+    NgaWalk = calib.CovWalk;    // 随机游走的协方差矩阵（6维对角阵）
+
+    // 初始化预积分器相关参数
     Initialize(b_);
 }
 
 // Copy constructor
 /**
- * @brief 预积分类的构造函数
+ * @brief 两帧之间的预积分类的 构造函数
  * @param pImuPre   上一段时间的预积分
  * 这一段就是把上段预积分的每个变量取出来赋值到当前的预积分类的成员变量里面
  */
@@ -179,12 +182,13 @@ void Preintegrated::CopyFrom(Preintegrated *pImuPre) {
 }
 
 /**
- * @brief 初始化预积分函数：就把零偏更新了一下
- * @param b_ 零偏
+ * @brief 初始化预积分器：仅更新零偏
+ * @param b_ 上一帧的零偏类
  */
 void Preintegrated::Initialize(const Bias &b_) {
-    // 除了dR设置为单位矩阵,其他均设置为0矩阵
+    // 除了dR设置为单位矩阵，其他均设置为0矩阵
     dR.setIdentity();
+
     dV.setZero();
     dP.setZero();
     JRg.setZero();
@@ -219,22 +223,20 @@ void Preintegrated::Reintegrate() {
 }
 
 /**
- * @brief 预积分计算；根据预积分噪声的递推公式 更新 预积分噪声Noise
+ * @brief 计算两帧之间的 每个预积分量的 预积分；根据预积分噪声的递推公式 更新 预积分噪声Noise
  *
  * @param[in] acceleration  IMU当前时刻 到 下一时刻的 平均加速度 (在这里作为 当前时刻的IMU 加速度)
  * @param[in] angVel        IMU当前时刻 到 下一时刻的 平均角速度 (当前时刻的IMU 角速度)
  * @param[in] dt            两数据间的 时间差
  */
 void Preintegrated::IntegrateNewMeasurement(const Eigen::Vector3f &acceleration, const Eigen::Vector3f &angVel, const float &dt) {
-    // 保存 IMU 数据，利用中值积分的结果构造一个预积分类保存在 mvMeasurements 中
-    // mvMeasurements保存着一段时间的IMU数据，现保存上以备后续使用
+    // 将 中值积分后的结果 封装成一个结构体，先保存在 mvMeasurements 中；
     mvMeasurements.push_back(integrable(acceleration, angVel, dt));
 
-    // 先更新 位置，因为其依赖于之前计算的 速度和旋转；
-    // 再更新 速度，因为其依赖于之前计算的 旋转；
-    // 最后更新 旋转
+    // 先更新 位置P，因为其依赖于之前计算的 速度V 和 旋转R；
+    // 再更新 速度V，因为其依赖于之前计算的 旋转R；
+    // 最后更新 旋转R
 
-    // Matrices to compute covariance
     // Step 1: 构造协方差矩阵
 
     // Step 1.1: 定义 预积分噪声矩阵 的传递矩阵，A 用于计算 i 到 j-1 的历史噪声或者协方差; B用于计算 j-1 新的噪声或协方差；
@@ -244,9 +246,9 @@ void Preintegrated::IntegrateNewMeasurement(const Eigen::Vector3f &acceleration,
     Eigen::Matrix<float, 9, 6> B;
     B.setZero();
 
-    // 当前时刻 去零偏后 的加速度、平均角速度 (考虑偏置后的加速度、角速度，根据偏置得到数据)
+    // 去零偏：当前时刻的 平均加速度、角速度的 测量值 - 上一帧的零偏（a~_j-1 - b^a_i）
     Eigen::Vector3f acc, accW;
-    acc << acceleration(0) - b.bax, acceleration(1) - b.bay, acceleration(2) - b.baz; // a~_j-1 - b^a_i
+    acc << acceleration(0) - b.bax, acceleration(1) - b.bay, acceleration(2) - b.baz;
     accW << angVel(0) - b.bwx, angVel(1) - b.bwy, angVel(2) - b.bwz;
 
     //! dR、dV、dP: 旋转、速度、位置预积分的测量值 (= 理想值 + 噪声) △R~_i,j-1
@@ -303,7 +305,7 @@ void Preintegrated::IntegrateNewMeasurement(const Eigen::Vector3f &acceleration,
     // ? 为什么先更新JPa、JPg、JVa、JVg最后更新JRg? 答：这里必须先更新dRi才能更新到这个值，但是为什么JPg和JVg依赖的上一个JRg值进行更新的？
     JRg = dRi.deltaR.transpose() * JRg - dRi.rightJ * dt;
 
-    // 累加总积分时间
+    // 累加两帧之间IMU数据的 总积分时间
     dT += dt;
 }
 
@@ -532,11 +534,11 @@ std::ostream &operator<<(std::ostream &out, const Bias &b) {
 
 /**
  * @brief 设置参数
- * @param Tbc_ 位姿变换
- * @param ng 噪声
- * @param na 噪声
- * @param ngw 随机游走
- * @param naw 随机游走
+ * @param Tbc_ 左目到IMU的变换矩阵
+ * @param ng 陀螺仪的 噪声
+ * @param na 加速度计的 噪声
+ * @param ngw 陀螺仪的 随机游走
+ * @param naw 加速度的 计随机游走
  */
 void Calib::Set(const Sophus::SE3<float> &sophTbc, const float &ng, const float &na, const float &ngw, const float &naw) {
     mbIsSet = true;
@@ -548,15 +550,15 @@ void Calib::Set(const Sophus::SE3<float> &sophTbc, const float &ng, const float 
     // Sophus/Eigen
     mTbc = sophTbc;
     mTcb = mTbc.inverse();
-    // 噪声协方差
+    // 噪声 协方差
     Cov.diagonal() << ng2, ng2, ng2, na2, na2, na2;
-    // 随机游走协方差
+    // 随机游走 协方差
     CovWalk.diagonal() << ngw2, ngw2, ngw2, naw2, naw2, naw2;
 }
 
 /**
- * @brief imu标定参数的构造函数
- * @param calib imu标定参数
+ * @brief IMU标定参数的构造函数
+ * @param calib IMU标定参数
  */
 Calib::Calib(const Calib &calib) {
     mbIsSet = calib.mbIsSet;

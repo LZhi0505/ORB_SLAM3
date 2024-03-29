@@ -203,13 +203,12 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
     mpFrameDrawer = new FrameDrawer(mpAtlas);
     mpMapDrawer = new MapDrawer(mpAtlas, strSettingsFile, settings_);
 
-    // Initialize the Tracking thread (it will live in the main thread of execution, the one that called this constructor)
-    // 创建 Tracking 线程，不会立刻开启，会在对图像和IMU预处理后在 main 函数中执行。
+    //! 创建 Tracking 线程，不会立刻开启，会在对图像和IMU预处理后在 main 函数中执行。
     // 在创建时，会加载配置设置
     cout << "Seq. Name: " << strSequence << endl << "创建跟踪线程" << endl;
     mpTracker = new Tracking(this, mpVocabulary, mpFrameDrawer, mpMapDrawer, mpAtlas, mpKeyFrameDatabase, strSettingsFile, mSensor, settings_, strSequence);
 
-    // 创建并开启 局部建图 线程，线程函数名为 LocalMapping::Run()
+    //! 创建并开启 局部建图 线程，线程函数名为 LocalMapping::Run()
     mpLocalMapper = new LocalMapping(this, mpAtlas, mSensor == MONOCULAR || mSensor == IMU_MONOCULAR, mSensor == IMU_MONOCULAR || mSensor == IMU_STEREO || mSensor == IMU_RGBD, strSequence);
     mptLocalMapping = new thread(&ORB_SLAM3::LocalMapping::Run, mpLocalMapper);
     // 初始化帧的id，代码中设置为0
@@ -226,12 +225,11 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
     } else
         mpLocalMapper->mbFarPoints = false;
 
-    // 创建并开启 回环检测 线程
+    //! 创建并开启 回环检测 线程
     mpLoopCloser = new LoopClosing(mpAtlas, mpKeyFrameDatabase, mpVocabulary, mSensor != MONOCULAR, activeLC); // mSensor!=MONOCULAR);
     mptLoopClosing = new thread(&ORB_SLAM3::LoopClosing::Run, mpLoopCloser);
 
-    // Set pointers between threads
-    // 设置线程间的指针
+    //! 将各线程通过指针建立起联系
     mpTracker->SetLocalMapper(mpLocalMapper);
     mpTracker->SetLoopClosing(mpLoopCloser);
 
@@ -243,7 +241,7 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
 
     // usleep(10*1000*1000);
 
-    // 创建并开启 显示 线程
+    //! 创建并开启 显示 线程
     if (bUseViewer)
     // if(false) // TODO
     {
