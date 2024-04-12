@@ -602,7 +602,7 @@ void Tracking::newParameterLoader(Settings *settings) {
     float Ngw = settings->gyroWalk();
     float Naw = settings->accWalk();
 
-    const float sf = sqrt(mImuFreq);    // 缩放因子，将连续时间的噪声参数转换成离散时间的噪声参数
+    const float sf = sqrt(mImuFreq); // 缩放因子，将连续时间的噪声参数转换成离散时间的噪声参数
 
     // 创建IMU的标定参数对象（传入Tbc，放大后的 陀螺仪和加速度计的噪声、随机游走，构造协方差矩阵）
     mpImuCalib = new IMU::Calib(Tbc, Ng * sf, Na * sf, Ngw / sf, Naw / sf);
@@ -1325,6 +1325,12 @@ Sophus::SE3f Tracking::GrabImageStereo(const cv::Mat &imRectLeft, const cv::Mat 
         mCurrentFrame =
             Frame(mImGray, imGrayRight, timestamp, mpORBextractorLeft, mpORBextractorRight, mpORBVocabulary, mK, mDistCoef, mbf, mThDepth, mpCamera, mpCamera2, mTlr, &mLastFrame, *mpImuCalib);
 
+    //    cv::Mat res = mImGray.clone();
+    //    for(const auto& kp: mCurrentFrame.mvKeys){
+    //        cv::circle(res, kp.pt, 1, cv::Scalar(0, 255, 0), -1);
+    //    }
+    //    cv::imshow("feat", res);
+
     mCurrentFrame.mNameFile = filename;
     mCurrentFrame.mnDataset = mnNumDataset;
 
@@ -1435,6 +1441,12 @@ Sophus::SE3f Tracking::GrabImageMonocular(const cv::Mat &im, const double &times
         } else
             mCurrentFrame = Frame(mImGray, timestamp, mpORBextractorLeft, mpORBVocabulary, mpCamera, mDistCoef, mbf, mThDepth, &mLastFrame, *mpImuCalib);
     }
+
+    //    cv::Mat res = mImGray.clone();
+    //    for(const auto& kp: mCurrentFrame.mvKeys) {
+    //        cv::circle(res, kp.pt, 1, cv::Scalar(0, 255, 0), -1);
+    //    }
+    //    cv::imshow("feat", res);
 
     // t0 存储未初始化时的第 1 帧图像时间戳
     if (mState == NO_IMAGES_YET)
@@ -1557,7 +1569,7 @@ void Tracking::PreintegrateIMU() {
     }
 
     // Step 2: 对两帧之间进行中值积分处理
-    const int n = mvImuFromLastFrame.size() - 1;    // n+1个IMU数据会有 n 个预积分量
+    const int n = mvImuFromLastFrame.size() - 1; // n+1个IMU数据会有 n 个预积分量
     // 只有一个IMU数据，则返回
     if (n == 0) {
         cout << "Empty IMU measurements vector!!!\n";
@@ -1592,7 +1604,7 @@ void Tracking::PreintegrateIMU() {
             // (3) 其加上a1，再除以2 就为这段时间的平均加速度
             acc = (mvImuFromLastFrame[i].a + mvImuFromLastFrame[i + 1].a - (mvImuFromLastFrame[i + 1].a - mvImuFromLastFrame[i].a) * (tini / tab)) * 0.5f;
             angVel = (mvImuFromLastFrame[i].w + mvImuFromLastFrame[i + 1].w - (mvImuFromLastFrame[i + 1].w - mvImuFromLastFrame[i].w) * (tini / tab)) * 0.5f;
-            tstep = mvImuFromLastFrame[i + 1].t - mCurrentFrame.mpPrevFrame->mTimeStamp;    // 上一帧 到 a1 的时间间隔
+            tstep = mvImuFromLastFrame[i + 1].t - mCurrentFrame.mpPrevFrame->mTimeStamp; // 上一帧 到 a1 的时间间隔
         }
         // 不是第一个数据，或不是倒数第二个，则不存在帧的干扰，正常计算
         else if (i < (n - 1)) {
@@ -1788,7 +1800,8 @@ void Tracking::Track() {
 
     // Step 3：IMU模式 且 上一关键帧 存在，则将上一关键帧的IMU零偏 赋予 当前帧
     if ((mSensor == System::IMU_MONOCULAR || mSensor == System::IMU_STEREO || mSensor == System::IMU_RGBD) && mpLastKeyFrame) {
-        mCurrentFrame.SetNewBias(mpLastKeyFrame->GetImuBias()); // 零偏会对IMU数据的精度和稳定性产生影响，因此在SLAM系统中，通常会使用关键帧的IMU零偏 来校准和纠正 当前帧的IMU数据，从而提高SLAM系统的性能和稳定性
+        mCurrentFrame.SetNewBias(
+            mpLastKeyFrame->GetImuBias()); // 零偏会对IMU数据的精度和稳定性产生影响，因此在SLAM系统中，通常会使用关键帧的IMU零偏 来校准和纠正 当前帧的IMU数据，从而提高SLAM系统的性能和稳定性
     }
 
     // 如果系统刚刚启动，则置状态为 未初始化，准备进行初始化
@@ -2452,7 +2465,10 @@ void Tracking::StereoInitialization() {
             Vwb0.setZero();
             // 设置当前帧的Tcw = IMU标定外参Tcb * Tbc，得出Rwc, twc
             mCurrentFrame.SetImuPoseVelocity(Rwb0, twb0, Vwb0);
-            std::cout << "双目初始化中，IMU模式，当前帧位姿：" << std::endl << mCurrentFrame.GetPose().matrix() <<std::endl <<  " = " << std::endl << mCurrentFrame.mImuCalib.mTcb.matrix() << " * " << mCurrentFrame.mImuCalib.mTcb.inverse().matrix() << std::endl;
+            std::cout << "双目初始化中，IMU模式，当前帧位姿：" << std::endl
+                      << mCurrentFrame.GetPose().matrix() << std::endl
+                      << " = " << std::endl
+                      << mCurrentFrame.mImuCalib.mTcb.matrix() << " * " << mCurrentFrame.mImuCalib.mTcb.inverse().matrix() << std::endl;
         }
         // 非IMU模式，设置初始位姿为单位旋转，平移为0
         else {
@@ -2480,11 +2496,11 @@ void Tracking::StereoInitialization() {
                     MapPoint *pNewMP = new MapPoint(x3D, pKFini, mpAtlas->GetCurrentMap());
 
                     // 为该MapPoint添加属性：
-                    pNewMP->AddObservation(pKFini, i);  // a.该地图点和当前关键帧建立双向连接
+                    pNewMP->AddObservation(pKFini, i); // a.该地图点和当前关键帧建立双向连接
                     pKFini->AddMapPoint(pNewMP, i);
-                    pNewMP->ComputeDistinctiveDescriptors();    // b.计算该地图点的描述子
-                    pNewMP->UpdateNormalAndDepth(); // c. 更新该地图点的平均观测方向和深度范围
-                    mpAtlas->AddMapPoint(pNewMP);// 加入到地图中
+                    pNewMP->ComputeDistinctiveDescriptors(); // b.计算该地图点的描述子
+                    pNewMP->UpdateNormalAndDepth();          // c. 更新该地图点的平均观测方向和深度范围
+                    mpAtlas->AddMapPoint(pNewMP);            // 加入到地图中
 
                     mCurrentFrame.mvpMapPoints[i] = pNewMP; // 和当前帧特征点对应
                 }
@@ -3154,7 +3170,7 @@ bool Tracking::TrackWithMotionModel() {
     // 设置特征匹配过程中的搜索半径
     int th;
     if (mSensor == System::STEREO)
-        th = 7; // 仅双目
+        th = 7; // 纯视觉双目
     else
         th = 15; // 单目、RGB-D、IMU+单目、IMU+双目、IMU+RGB-D
     std::cout << "\t\tmargin: " << th << std::endl;

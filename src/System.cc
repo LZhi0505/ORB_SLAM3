@@ -468,13 +468,14 @@ Sophus::SE3f System::TrackMonocular(const cv::Mat &im, const double &timestamp, 
     // 检查是否需要重置 整个跟踪器还是仅活动地图
     {
         unique_lock<mutex> lock(mMutexReset);
-        if (mbReset) // 重置整个跟踪器
-        {
+        // 重置整个跟踪器
+        if (mbReset) {
             mpTracker->Reset();
             mbReset = false;
             mbResetActiveMap = false;
-        } else if (mbResetActiveMap) // 仅重置活动地图
-        {
+        }
+        // 仅重置活动地图
+        else if (mbResetActiveMap) {
             cout << "SYSTEM-> Reseting active map in monocular case" << endl;
             mpTracker->ResetActiveMap();
             mbResetActiveMap = false;

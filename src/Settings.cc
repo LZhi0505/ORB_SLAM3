@@ -518,10 +518,9 @@ void Settings::readOtherParameters(cv::FileStorage &fSettings) {
 }
 
 /**
- * @brief 预先计算双目校正图像映射M1l_，M2l_，M1r_，M2r_
+ * @brief 预先计算双目极线矫正所需的 图像映射矩阵M1l_，M2l_，M1r_，M2r_
  */
 void Settings::precomputeRectificationMaps() {
-    // Precompute rectification maps, new calibrations, ...
     // 左目内参矩阵
     cv::Mat K1 = static_cast<Pinhole *>(calibration1_)->toK();
     K1.convertTo(K1, CV_64F);
@@ -529,12 +528,13 @@ void Settings::precomputeRectificationMaps() {
     cv::Mat K2 = static_cast<Pinhole *>(calibration2_)->toK();
     K2.convertTo(K2, CV_64F);
 
-    //        std::cout << std::endl << "单目畸变矫正后参数: " << std::endl;
-    //        std::cout << "Tlr_: " << Tlr_.matrix() << std::endl << std::endl;
+    std::cout << std::endl << "极线矫正前参数: " << std::endl;
+    std::cout << "右目到左目的 Tlr_: " << Tlr_.matrix() << std::endl << std::endl;
+
     // 得到左目到右目的变换矩阵
     cv::Mat cvTlr;
     cv::eigen2cv(Tlr_.inverse().matrix3x4(), cvTlr);
-    //        std::cout << "Tlr: " << cvTlr << std::endl << std::endl;
+    std::cout << "左目到右目的 Tlr: " << cvTlr << std::endl << std::endl;
     // 左目到右目的旋转矩阵
     cv::Mat R12 = cvTlr.rowRange(0, 3).colRange(0, 3);
     R12.convertTo(R12, CV_64F);
@@ -542,68 +542,70 @@ void Settings::precomputeRectificationMaps() {
     cv::Mat t12 = cvTlr.rowRange(0, 3).col(3);
     t12.convertTo(t12, CV_64F);
 
-    //        std::cout << "K1: " << K1 << std::endl << std::endl;
-    //        std::cout << "D1: " << camera1DistortionCoef() << std::endl << std::endl; std::cout << "K2: " << K2 << std::endl << std::endl;
-    //        std::cout << "D2: " << camera2DistortionCoef() << std::endl << std::endl; std::cout << "R12: " << R12 << std::endl << std::endl;
-    //        std::cout << "t12: " << t12 << std::endl << std::endl;
+    std::cout << "R12: " << R12 << std::endl << std::endl;
+    std::cout << "t12: " << t12 << std::endl << std::endl;
+
+    std::cout << "K1: " << K1 << std::endl << std::endl;
+    std::cout << "D1: " << camera1DistortionCoef() << std::endl << std::endl;
+    std::cout << "K2: " << K2 << std::endl << std::endl;
+    std::cout << "D2: " << camera2DistortionCoef() << std::endl << std::endl;
 
     std::cout << "双目校正计算：得到变换矩阵、投影矩阵" << std::endl;
     cv::Mat R_r1_u1, R_r2_u2;
     cv::Mat P1, P2, Q;
     // 得到双目矫正所需的变换矩阵、投影矩阵
-    cv::stereoRectify(K1,                      // 输入：左目内参矩阵
-                      camera1DistortionCoef(), // 输入：左目畸变参数, 4/5x1
-                      K2,                      // 输入：右目内参矩阵
-                      camera2DistortionCoef(), // 输入：右目畸变参数, 4/5x1
-                      newImSize_,              // 输入：输入图像大小
-                      R12, t12,                // 输入：左目相机坐标系到右目相机坐标系的旋转矩阵、平移向量
-                      R_r1_u1, R_r2_u2,        // 输出：R_{左 矫正相机坐标系}{左 未矫正相机坐标系}、R_{右 矫正相机坐标系}{右 未矫正相机坐标系}
-                      P1, P2,                  // 输出：3x4: 左矫正坐标系到左图像坐标系的透视投影矩阵、右矫正坐标系到左图像坐标系的透视投影矩阵
-                      Q,                       // 输出：4x4: 视差深度映射矩阵
-                      cv::CALIB_ZERO_DISPARITY, -1,
+    cv::stereoRectify(K1,                       // in：左目内参矩阵
+                      camera1DistortionCoef(),  // in：左目畸变参数, 4/5x1
+                      K2,                       // in：右目内参矩阵
+                      camera2DistortionCoef(),  // in：右目畸变参数, 4/5x1
+                      newImSize_,               // in：输入图像大小
+                      R12, t12,                 // in：左目相机坐标系到右目相机坐标系的旋转矩阵、平移向量
+                      R_r1_u1, R_r2_u2,         // out：R_{左 矫正相机坐标系}{左 未矫正相机坐标系}、R_{右 矫正相机坐标系}{右 未矫正相机坐标系}
+                      P1, P2,                   // out：3x4: 左矫正相机坐标系到左图像坐标系的 投影矩阵、右矫正相机坐标系到右图像坐标系的 投影矩阵
+                      Q,                        // out：4x4: 视差深度映射矩阵
+                      cv::CALIB_ZERO_DISPARITY, // 将两个相机的主点设成一样；否则就会平移图像最大化有用的图像区域
+                      -1, // 自由缩放参数：默认-1，执行默认缩放；否则为0 - 1，0：放大和平移使得最终图像中只有有效像素；1：缩小和平移使得原始图像中所有像素都可见
                       newImSize_); // 矫正后图像大小
-    //        std::cout << "R_r1_u1: " << R_r1_u1 << std::endl << std::endl;
-    //        std::cout << "R_r2_u2: " << R_r2_u2 << std::endl << std::endl;
-    //        std::cout << "P1: " << P1 << std::endl << std::endl;
-    //        std::cout << "P2: " << P2 << std::endl << std::endl;
+    std::cout << "R_r1_u1: " << R_r1_u1 << std::endl << std::endl;
+    std::cout << "R_r2_u2: " << R_r2_u2 << std::endl << std::endl;
+    std::cout << "P1: " << P1 << std::endl << std::endl;
+    std::cout << "P2: " << P2 << std::endl << std::endl;
 
-    //        std::cout << "畸变映射计算: " << std::endl;
+    std::cout << "畸变映射计算: " << std::endl;
     // 计算畸变映射
     cv::initUndistortRectifyMap(K1, camera1DistortionCoef(), R_r1_u1, P1.rowRange(0, 3).colRange(0, 3), newImSize_, CV_32F, M1l_, M2l_);
     cv::initUndistortRectifyMap(K2, camera2DistortionCoef(), R_r2_u2, P2.rowRange(0, 3).colRange(0, 3), newImSize_, CV_32F, M1r_, M2r_);
 
-    //        std::cout << "M1l_: " << M1l_ << std::endl << std::endl;
-    //        std::cout << "M2l_: " << M2l_ << std::endl << std::endl;
-    //        std::cout << "M1r_: " << M1r_ << std::endl << std::endl;
-    //        std::cout << "M2r_: " << M2r_ << std::endl << std::endl;
+    //    std::cout << "M1l_: " << M1l_ << std::endl << std::endl;
+    //    std::cout << "M2l_: " << M2l_ << std::endl << std::endl;
+    //    std::cout << "M1r_: " << M1r_ << std::endl << std::endl;
+    //    std::cout << "M2r_: " << M2r_ << std::endl << std::endl;
 
-    // Update calibration
     // 更新矫正后的内参矩阵
     calibration1_->setParameter(P1.at<double>(0, 0), 0); // fx
     calibration1_->setParameter(P1.at<double>(1, 1), 1); // fy
     calibration1_->setParameter(P1.at<double>(0, 2), 2); // cx
     calibration1_->setParameter(P1.at<double>(1, 2), 3); // cy
 
-    //        std::cout << "双目矫正后的内参矩阵: " << std::endl;
-    //        std::cout << "fx: " << calibration1_->getParameter(0) << std::endl;
-    //        std::cout << "fy: " << calibration1_->getParameter(1) << std::endl;
-    //        std::cout << "cx: " << calibration1_->getParameter(2) << std::endl;
-    //        std::cout << "cy: " << calibration1_->getParameter(3) << std::endl;
+    std::cout << "双目矫正后的内参矩阵: " << std::endl;
+    std::cout << "fx: " << calibration1_->getParameter(0) << std::endl;
+    std::cout << "fy: " << calibration1_->getParameter(1) << std::endl;
+    std::cout << "cx: " << calibration1_->getParameter(2) << std::endl;
+    std::cout << "cy: " << calibration1_->getParameter(3) << std::endl;
 
-    // Update bf
     // 更新 bfx
     bf_ = b_ * P1.at<double>(0, 0);
-    //        std::cout << "b_: "<< setprecision(17) << b_ << std::endl << std::endl; std::cout << "双目矫正后的bfx: "<< bf_ << std::endl << std::endl;
+    std::cout << "b_: " << setprecision(17) << b_ << std::endl << std::endl;
+    std::cout << "双目矫正后的bfx: " << bf_ << std::endl << std::endl;
 
-    // Update relative pose between camera 1 and IMU if necessary
     // IMU模式，则更新左目到IMU (body) 的相对位姿
     if (sensor_ == System::IMU_STEREO) {
         Eigen::Matrix3f eigenR_r1_u1;
-        cv::cv2eigen(R_r1_u1, eigenR_r1_u1);
+        cv::cv2eigen(R_r1_u1, eigenR_r1_u1); // 左目矫正前 到 矫正后的
         Sophus::SE3f T_r1_u1(eigenR_r1_u1, Eigen::Vector3f::Zero());
-        //            std::cout << "双目矫正前的tbc: "<< Tbc_.matrix() << std::endl << std::endl;
-        Tbc_ = Tbc_ * T_r1_u1.inverse();
-        //            std::cout << "双目矫正后的tbc: "<< Tbc_.matrix() << std::endl << std::endl;
+        std::cout << "双目矫正前的tbc: " << Tbc_.matrix() << std::endl << std::endl;
+        Tbc_ = Tbc_ * T_r1_u1.inverse(); // T_b_左目矫正前 * T_矫正前_矫正后
+        std::cout << "双目矫正后的tbc: " << Tbc_.matrix() << std::endl << std::endl;
     }
 }
 

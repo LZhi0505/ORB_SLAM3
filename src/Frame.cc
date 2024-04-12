@@ -558,12 +558,12 @@ void Frame::SetVelocity(Eigen::Vector3f Vwb) {
 
 Eigen::Vector3f Frame::GetVelocity() const { return mVw; }
 
- /**
-  * 设置当前帧的 位姿Tcw与速度Vw
-  * @param Rwb
-  * @param twb
-  * @param Vwb
-  */
+/**
+ * 设置当前帧的 位姿Tcw与速度Vw
+ * @param Rwb
+ * @param twb
+ * @param Vwb
+ */
 void Frame::SetImuPoseVelocity(const Eigen::Matrix3f &Rwb, const Eigen::Vector3f &twb, const Eigen::Vector3f &Vwb) {
     mVw = Vwb;
     mbHasVelocity = true;
@@ -587,7 +587,7 @@ void Frame::UpdatePoseMatrices() {
 
     Sophus::SE3<float> Twc = mTcw.inverse();
     mRwc = Twc.rotationMatrix();
-    mOw = Twc.translation();        // 当前相机光心的世界坐标 = twc
+    mOw = Twc.translation(); // 当前相机光心的世界坐标 = twc
 
     mRcw = mTcw.rotationMatrix();
     mtcw = mTcw.translation();
@@ -1071,15 +1071,15 @@ void Frame::ComputeStereoMatches() {
         for (int yi = minr; yi <= maxr; yi++)
             vRowIndices[yi].push_back(iR);
     }
-//    std::stringstream ss;
-//    for (int i = 0; i < vRowIndices.size(); i++) {
-//        ss << "row " << i << ": ";
-//        for (int j = 0; j < vRowIndices[i].size(); j++) {
-//            ss << vRowIndices[i][j] << " ";
-//        }
-//        ss << std::endl;
-//    }
-//    std::cout << ss.str().c_str() << std::endl;
+    //    std::stringstream ss;
+    //    for (int i = 0; i < vRowIndices.size(); i++) {
+    //        ss << "row " << i << ": ";
+    //        for (int j = 0; j < vRowIndices[i].size(); j++) {
+    //            ss << vRowIndices[i][j] << " ";
+    //        }
+    //        ss << std::endl;
+    //    }
+    //    std::cout << ss.str().c_str() << std::endl;
 
     // Step 2 -> 3：粗匹配 + 精匹配
     // 对于立体矫正后的两张图，在列方向(x 横坐标)存在最大视差 maxd 和 最小视差 mind
@@ -1323,9 +1323,9 @@ void Frame::ComputeStereoFromRGBD(const cv::Mat &imDepth) {
 bool Frame::UnprojectStereo(const int &i, Eigen::Vector3f &x3D) {
     const float z = mvDepth[i];
     if (z > 0) {
-        const float u = mvKeysUn[i].pt.x;   // 像素坐标
+        const float u = mvKeysUn[i].pt.x; // 像素坐标
         const float v = mvKeysUn[i].pt.y;
-        const float x = (u - cx) * z * invfx;   // 世界坐标
+        const float x = (u - cx) * z * invfx; // 世界坐标
         const float y = (v - cy) * z * invfy;
         Eigen::Vector3f x3Dc(x, y, z);
         x3D = mRwc * x3Dc + mOw; // 转换到世界坐标系下的三维坐标
