@@ -168,8 +168,8 @@ private:
     Eigen::Vector3f mtlr;
 
     // IMU linear velocity
-    Eigen::Vector3f mVw;    // IMU线速度
-    bool mbHasVelocity; // 有速度标志
+    Eigen::Vector3f mVw; // IMU线速度
+    bool mbHasVelocity;  // 有速度标志
 
 public:
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
@@ -252,7 +252,7 @@ public:
 
     // Pointer to previous frame
     Frame *mpPrevFrame;
-    IMU::Preintegrated *mpImuPreintegratedFrame;    // 当前帧相对于 上一帧的 IMU预积分器
+    IMU::Preintegrated *mpImuPreintegratedFrame; // 当前帧相对于 上一帧的 IMU预积分器
 
     // Current and Next Frame id.
     static long unsigned int nNextId;
@@ -313,7 +313,7 @@ public:
 
     // Number of KeyPoints extracted in the left and right images
     int Nleft, Nright;
-    // Number of Non Lapping Keypoints 单目图像提取的所有图层的特征点个数
+    // Number of Non Lapping Keypoints 左、右目不在共视范围内的特征点的数量
     int monoLeft, monoRight;
 
     // For stereo matching

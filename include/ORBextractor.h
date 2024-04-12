@@ -102,10 +102,10 @@ protected:
 
     std::vector<int> umax;
 
-    std::vector<float> mvScaleFactor;
-    std::vector<float> mvInvScaleFactor;    
-    std::vector<float> mvLevelSigma2;
-    std::vector<float> mvInvLevelSigma2;
+    std::vector<float> mvScaleFactor;   // 存储金字塔每层图像相对第0层图像的 缩放系数
+    std::vector<float> mvInvScaleFactor;    // 每层图像缩放系数 的倒数
+    std::vector<float> mvLevelSigma2;   // 存储每层图像相对第0层图像的 缩放系数^2
+    std::vector<float> mvInvLevelSigma2;    // 每层图像缩放系数^2 的倒数
 };
 
 } //namespace ORB_SLAM

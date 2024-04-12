@@ -46,7 +46,7 @@ float Frame::cx, Frame::cy, Frame::fx, Frame::fy, Frame::invfx, Frame::invfy;
 float Frame::mnMinX, Frame::mnMinY, Frame::mnMaxX, Frame::mnMaxY;
 float Frame::mfGridElementWidthInv, Frame::mfGridElementHeightInv;
 
-// For stereo fisheye matching，用于双目鱼眼的立体匹配
+// 暴力匹配器，用于鱼眼双目的立体匹配
 // 第一个参数：normType：它是用来指定要使用的距离测试类型,默认值为cv2.Norm_L2,这很适合SIFT和SURF等（c2.NORM_L1也可）。
 // 对于使用二进制描述符的ORB、BRIEF和BRISK算法等，要使用cv2.NORM_HAMMING，这样就会返回两个测试对象之间的汉明距离。
 // 如果ORB算法的参数设置为WTA_K==3或4，normType就应该设置成cv2.NORM_HAMMING2。
@@ -129,13 +129,13 @@ Frame::Frame(const cv::Mat &imLeft, const cv::Mat &imRight, const double &timeSt
     mnId = nNextId++;
 
     // Step 2：计算图像金字塔的参数
-    mnScaleLevels = mpORBextractorLeft->GetLevels();                      // 获取图像金字塔的层数
-    mfScaleFactor = mpORBextractorLeft->GetScaleFactor();                 // 获得层与层之间的缩放比
-    mfLogScaleFactor = log(mfScaleFactor);                                // 计算上面缩放比的对数
-    mvScaleFactors = mpORBextractorLeft->GetScaleFactors();               // 获取每层图像的缩放因子
-    mvInvScaleFactors = mpORBextractorLeft->GetInverseScaleFactors();     // 同样获取每层图像缩放因子的倒数
-    mvLevelSigma2 = mpORBextractorLeft->GetScaleSigmaSquares();           // 高斯模糊的时候，使用的方差
-    mvInvLevelSigma2 = mpORBextractorLeft->GetInverseScaleSigmaSquares(); // 获取sigma^2的倒数
+    mnScaleLevels = mpORBextractorLeft->GetLevels();                      // 图像金字塔的层数
+    mfScaleFactor = mpORBextractorLeft->GetScaleFactor();                 // 两层之间的缩放系数
+    mfLogScaleFactor = log(mfScaleFactor);                             // 缩放系数 的对数
+    mvScaleFactors = mpORBextractorLeft->GetScaleFactors();               // 每层图像相对第0层图像的 缩放系数
+    mvInvScaleFactors = mpORBextractorLeft->GetInverseScaleFactors();     // 缩放系数 的倒数
+    mvLevelSigma2 = mpORBextractorLeft->GetScaleSigmaSquares();           // 每层图像相对第0层图像的 缩放系数^2 (高斯模糊的时候，使用的方差)
+    mvInvLevelSigma2 = mpORBextractorLeft->GetInverseScaleSigmaSquares(); // 缩放系数^2 的倒数
 
 #ifdef REGISTER_TIMES
     std::chrono::steady_clock::time_point time_StartExtORB = std::chrono::steady_clock::now();
@@ -1041,7 +1041,6 @@ void Frame::ComputeStereoMatches() {
     // nRows：图像高度，即金字塔顶层（0层）的高度
     const int nRows = mpORBextractorLeft->mvImagePyramid[0].rows;
 
-    // Assign keypoints to row table
     // vRowIndices 每一行存储的是右目特征点的索引。即这个二维向量表示的是右目特征点索引可能出现的行号
     // 为什么是vector，因为每一行的特征点有可能不一样，例如：
     // vRowIndices[0] = [1, 2, 5, 8, 11]   第0行有5个右目特征点, 它们的索引分别是 1,2,5,8,11
@@ -1086,7 +1085,6 @@ void Frame::ComputeStereoMatches() {
     // 也即是左图中任何一点 p，在右图上的匹配点的范围为应该是[p - maxd, p - mind], 而不需要遍历每一行所有的像素
     // maxd = baseline * length_focal / minZ
     // mind = baseline * length_focal / maxZ
-    // Set limits for search
     const float minZ = mb;
     const float minD = 0;
     const float maxD = mbf / minZ; // = fx = 320
@@ -1156,9 +1154,8 @@ void Frame::ComputeStereoMatches() {
         //        Verbose::PrintMess("左图特征点横坐标: "+std::to_string(uL)+", 在右图的搜索范围: ("+std::to_string(minU)+", "+std::to_string(maxU)+"), 最佳匹配右目特征点坐标:
         //        ("+std::to_string(mvKeysRight[bestIdxR].pt.y)+", "+std::to_string(mvKeysRight[bestIdxR].pt.x)+"), 最佳匹配距离: "+std::to_string(bestDist), Verbose::VERBOSITY_DEBUG);
 
-        // Subpixel match by correlation
-        // Step 3：精匹配：如果刚才匹配点对的最佳匹配距离 < 阈值，则进行精匹配
-        if (bestDist < thOrbDist) {
+        // Step 3：精匹配，修正误差
+        if (bestDist < thOrbDist) { // 刚才匹配点对的最佳匹配距离 < 阈值，则进行精匹配
             num_cu++;
             // coordinates in image pyramid at keypoint scale
             // 在左目特征点iL所在的金字塔层进行块匹配，特征点坐标也需缩小
@@ -1171,7 +1168,6 @@ void Frame::ComputeStereoMatches() {
             // 右图匹配点bestIdxR的 x坐标
             const float scaleduR0 = round(uR0 * scaleFactor);
 
-            // sliding window search
             // 滑动窗口搜索, 类似模版卷积或滤波
             // w 表示 SAD (灰度值差的绝对和) 相似度的窗口半径
             const int w = 5;
@@ -1469,11 +1465,10 @@ Frame::Frame(const cv::Mat &imLeft, const cv::Mat &imRight, const double &timeSt
  */
 void Frame::ComputeStereoFishEyeMatches() {
     // Step 1: 分别只取出左、右目在共视区域的特征点，来加速
-    // Speed it up by matching keypoints in the lapping area
     vector<cv::KeyPoint> stereoLeft(mvKeys.begin() + monoLeft, mvKeys.end());
     vector<cv::KeyPoint> stereoRight(mvKeysRight.begin() + monoRight, mvKeysRight.end());
 
-    // Step 2: 分别取出上述特征带你对应的描述子
+    // Step 2: 分别取出上述特征点对应的描述子
     cv::Mat stereoDescLeft = mDescriptors.rowRange(monoLeft, mDescriptors.rows);
     cv::Mat stereoDescRight = mDescriptorsRight.rowRange(monoRight, mDescriptorsRight.rows);
 
@@ -1485,7 +1480,6 @@ void Frame::ComputeStereoFishEyeMatches() {
     mvStereo3Dpoints = vector<Eigen::Vector3f>(Nleft);
     mnCloseMPs = 0;
 
-    // Perform a brute force between Keypoint in the left and right image
     // Step 3: 使用OpenCV的BFmatcher (Brute Force)进行暴力匹配
 
     // 存储匹配结果，但其中包含 非对应特征点检测为匹配。
@@ -1506,14 +1500,14 @@ void Frame::ComputeStereoFishEyeMatches() {
         // 对于每一对候选匹配，最小距离比次小距离的0.7倍还小，则认为是好的匹配
         if ((*it).size() >= 2 && (*it)[0].distance < (*it)[1].distance * 0.7) {
             // 对于好的匹配，做三角化，且深度值有效的放入结果。并检查视差与重投影误差，以再筛查误匹配
-            // For every good match, check parallax and reprojection error to discard spurious matches
             Eigen::Vector3f p3D;
             descMatches++; // 好的匹配个数 + 1
+            // 左、右目匹配特征点所在层的 缩放系数^2
             float sigma1 = mvLevelSigma2[mvKeys[(*it)[0].queryIdx + monoLeft].octave], sigma2 = mvLevelSigma2[mvKeysRight[(*it)[0].trainIdx + monoRight].octave];
-            // 三角化
+            // 三角化计算深度
             float depth = static_cast<KannalaBrandt8 *>(mpCamera)->TriangulateMatches(mpCamera2, mvKeys[(*it)[0].queryIdx + monoLeft], mvKeysRight[(*it)[0].trainIdx + monoRight], mRlr, mtlr, sigma1,
                                                                                       sigma2, p3D);
-            // 填充数据
+            // 深度有效，则填充相关数据
             if (depth > 0.0001f) {
                 mvLeftToRightMatch[(*it)[0].queryIdx + monoLeft] = (*it)[0].trainIdx + monoRight;
                 mvRightToLeftMatch[(*it)[0].trainIdx + monoRight] = (*it)[0].queryIdx + monoLeft;
